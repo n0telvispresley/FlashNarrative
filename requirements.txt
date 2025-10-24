@@ -6,3 +6,10 @@ beautifulsoup4
 facebook-scraper
 playwright
 python-dotenv
+nltk
+reportlab
+slack-sdk
+schedule
+jmespath
+nested_lookup
+parsel

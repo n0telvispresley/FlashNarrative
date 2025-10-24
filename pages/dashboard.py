@@ -2,7 +2,7 @@
 import streamlit as st
 import sys
 import os
-# Add the root directory (/mount/src/FlashNarrative/) to sys.path
+# Add the root directory (/mount/src/flashnarrative/) to sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 # Debug: Print sys.path and working directory
 st.write(f"sys.path: {sys.path}")
@@ -19,13 +19,45 @@ import smtplib
 from email.mime.text import MIMEText
 from slack_sdk import WebClient
 
+# Debug: Test module imports and function existence
 try:
     from scraper import fetch_all
-    from analysis import analyze_sentiment, compute_kpis
-    from report_gen import generate_report
-    from servicenow_integration import create_servicenow_ticket
+    st.write("scraper.py: fetch_all imported successfully")
 except ImportError as e:
-    st.error(f"Failed to import modules: {e}. Check if scraper.py, analysis.py, report_gen.py, and servicenow_integration.py are in the root directory.")
+    st.error(f"Failed to import fetch_all from scraper.py: {e}")
+    st.stop()
+except Exception as e:
+    st.error(f"Unexpected error in scraper.py: {e}")
+    st.stop()
+
+try:
+    from analysis import analyze_sentiment, compute_kpis
+    st.write("analysis.py: analyze_sentiment and compute_kpis imported successfully")
+except ImportError as e:
+    st.error(f"Failed to import analyze_sentiment or compute_kpis from analysis.py: {e}")
+    st.stop()
+except Exception as e:
+    st.error(f"Unexpected error in analysis.py: {e}")
+    st.stop()
+
+try:
+    from report_gen import generate_report
+    st.write("report_gen.py: generate_report imported successfully")
+except ImportError as e:
+    st.error(f"Failed to import generate_report from report_gen.py: {e}")
+    st.stop()
+except Exception as e:
+    st.error(f"Unexpected error in report_gen.py: {e}")
+    st.stop()
+
+try:
+    from servicenow_integration import create_servicenow_ticket
+    st.write("servicenow_integration.py: create_servicenow_ticket imported successfully")
+except ImportError as e:
+    st.error(f"Failed to import create_servicenow_ticket from servicenow_integration.py: {e}")
+    st.stop()
+except Exception as e:
+    st.error(f"Unexpected error in servicenow_integration.py: {e}")
     st.stop()
 
 # Initialize NLTK
@@ -125,10 +157,10 @@ if st.button("Refresh"):
     st.rerun()
 
 # Comments:
-# - Moved 'import streamlit as st' to the top to fix NameError.
-# - Kept sys.path.append to include /mount/src/FlashNarrative/ in the search path.
-# - Retained debug output to inspect sys.path and working directory.
-# - Uses direct imports (from scraper import fetch_all) to avoid package naming issues.
+# - Fixed SyntaxError by removing trailing period in 'from scraper import fetch_all'.
+# - Added individual try/except blocks to debug imports for each module (scraper.py, analysis.py, report_gen.py, servicenow_integration.py).
+# - Kept sys.path.append to include /mount/src/flashnarrative/ in the search path.
+# - Retained debug output for sys.path and working directory.
 # - All features (KPIs, charts, PDF, alerts) included.
 # - Mock alerts print to console if creds missing.
 # - Use with updated requirements.txt.

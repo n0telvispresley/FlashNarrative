@@ -10,7 +10,7 @@ from email.mime.text import MIMEText
 from slack_sdk import WebClient
 try:
     # dashboard.py
-from ..scraper import fetch_all  # Go up one directory to find scraper.py
+    from ..scraper import fetch_all  # Go up one directory to find scraper.py
     from ..analysis import analyze_sentiment, compute_kpis
     from ..report_gen import generate_report
     from ..servicenow_integration import create_servicenow_ticket

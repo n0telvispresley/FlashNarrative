@@ -1,28 +1,3 @@
-Got it. Here's the updated `pages/dashboard.py` file with the correct email sending logic integrated and indentation errors fixed.
-
-**Key Changes:**
-
-1.  **Email Input:** Added `st.text_input` for the recipient's email address under the "Generate & Send Report" subheader.
-2.  **State Management:** Added session state variables (`pdf_report_bytes`, `excel_report_bytes`, `report_generated`, `ai_summary_text`) to store the generated files, the AI summary, and track if generation was successful.
-3.  **Generate Button:** Renamed the main button to "Generate Reports for Email/Download". Clicking this now:
-      * Generates *both* the PDF and Excel bytes *and* the AI summary.
-      * Stores them in `st.session_state`.
-      * Sets `st.session_state.report_generated = True` only if *both* files are created successfully.
-      * Displays the AI summary immediately upon successful generation.
-4.  **Conditional Buttons:**
-      * The individual **Download** buttons (PDF and Excel) and the **"Email Generated Reports"** button now appear in columns *only after* the "Generate Reports" button is clicked successfully (`st.session_state.report_generated is True`).
-5.  **Email Logic:** Clicking the "Email Generated Reports" button:
-      * Checks if an email address was entered.
-      * Bundles the stored PDF and Excel bytes into the `attachments` list.
-      * Uses the stored AI summary for the email body.
-      * Calls `servicenow_integration.send_report_email_with_attachments`.
-      * Shows success or **error messages directly in Streamlit** based on the return value (`sent`).
-6.  **Reset State:** The "Run Analysis" button now resets all report generation state variables.
-7.  **Indentation:** Fixed all indentation errors (`     `).
-
-<!-- end list -->
-
-```python
 # pages/dashboard.py
 import streamlit as st
 import pandas as pd
@@ -397,4 +372,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-```
+

@@ -274,34 +274,74 @@ def fetch_rss_for_industry(industry, brand, time_frame_hours, competitors):
     return mentions
 
 # Google News HTML fallback (keeps older approach; may be brittle)
+# scraper.py
+
+# ... (other functions) ...
+
+# Google News HTML fallback (keeps older approach; may be brittle)
 def fetch_google_news_html(brand, time_frame_hours, competitors):
     try:
         query = f"{brand} OR {' OR '.join(competitors)}" if competitors else brand
-        # Use the last N days window via parameters; we'll do strict hour filtering after parsing
-        url = f"https://www.google.com/search?q={quote_plus(query)}&tbm=nws&hl=en"
+        
+        # --- NEW TIME FILTER LOGIC ---
+        # Map hours to Google's 'tbs' parameter (tbs=qdr:...)
+        # qdr:hX = last X hours
+        # qdr:dX = last X days
+        time_filter = ""
+        try:
+            h = int(time_frame_hours)
+            if h <= 1:
+                time_filter = "qdr:h" # Last hour
+            elif h <= 72: # Use hour precision up to 3 days
+                time_filter = f"qdr:h{h}"
+            else: # Otherwise use day precision
+                days = max(1, int(h / 24))
+                time_filter = f"qdr:d{days}"
+        except Exception:
+            time_filter = "qdr:d" # Default to last 24 hours if something is wrong
+        
+        # --- UPDATED URL ---
+        url = f"https://www.google.com/search?q={quote_plus(query)}&tbm=nws&hl=en&tbs={time_filter}"
+        
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
+        # --- END OF UPDATE ---
+        
         resp = requests.get(url, headers=headers, timeout=10)
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, 'html.parser')
         mentions = []
+        
         # heuristic selectors (may change)
-        items = soup.select("div.dbsr") or soup.select("g-card")
+        items = soup.select("div.dbsr") or soup.select("g-card") or soup.select("div.SoaBEf")
+        
         cutoff_dt = datetime.now() - timedelta(hours=time_frame_hours)
+        
         for el in items:
             try:
-                a = el.find('a')
-                link = a['href'] if a else ''
-                title = el.get_text(separator=' ').strip()
-                # Google often doesn't provide easy dates in HTML results; skip strict check here
+                a_tag = el.find('a')
+                if not a_tag: continue
+                
+                link = a_tag['href']
+                title_el = el.find('div', role='heading')
+                title = title_el.get_text(separator=' ').strip() if title_el else a_tag.get_text(separator=' ').strip()
+
+                # Try to find a date, though it's less reliable
+                date_el = el.find('div', role='text')
+                date_str = date_el.get_text().split('·')[-1].strip() if date_el else None
+                
+                # Use Google's time filter as the source of truth, but parse if available
+                dt = _parse_date_to_dt(date_str) if date_str else datetime.now()
+                
                 domain = _simple_domain_from_url(link or 'news.google')
                 mentioned_brands = [b for b in [brand] + (competitors or []) if b.lower() in title.lower()]
+                
                 if mentioned_brands:
                     mentions.append({
-                        'text': title,
+                        'text': title, # This is the headline
                         'source': domain,
-                        'date': datetime.now().isoformat(),  # best-effort
+                        'date': dt.isoformat(), # Best-effort date
                         'link': link,
                         'mentioned_brands': mentioned_brands,
                         'authority': AUTHORITY_DICT.get(domain, 5),
@@ -312,9 +352,9 @@ def fetch_google_news_html(brand, time_frame_hours, competitors):
             except Exception:
                 continue
         return mentions
-    except Exception:
+    except Exception as e:
+        print(f"[Google News HTML Error] {e}")
         return []
-
 # Public interface
 def fetch_all(brand, time_frame, competitors=None, industry='default'):
     """

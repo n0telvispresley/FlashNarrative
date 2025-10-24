@@ -11,7 +11,7 @@ load_dotenv()
 # --- IMPORTANT: Use relative imports from the root ---
 import analysis
 import report_gen
-import scraper  # Fixed: Removed erroneous period from 'import scraper.'
+import scraper  # Line 14: Corrected import
 import bedrock
 import servicenow_integration  # For alerts
 
@@ -50,7 +50,6 @@ with col_i2:
     competitors = [c.strip() for c in competitors_input.split(",") if c.strip()]
 
 with col_i3:
-    # --- CHANGE: Re-added 'Personal Brand' to the list ---
     industry = st.selectbox(
         "Select Industry (for better RSS results)",
         ['default', 'Personal Brand', 'tech', 'finance', 'healthcare', 'retail'],
@@ -65,7 +64,7 @@ campaign_input = st.text_area(
 )
 campaign_messages = [c.strip() for c in campaign_input.split("\n") if c.strip()]
 
-# --- THIS IS THE CHANGE: Slider replaced with Selectbox ---
+# --- Slider replaced with Selectbox ---
 time_range_text = st.selectbox(
     "Select time frame",
     options=["Last 24 hours", "Last 48 hours", "Last 7 days", "Last 30 days (Max)"],
@@ -79,16 +78,14 @@ time_map = {
     "Last 30 days (Max)": 720  # 30 * 24
 }
 hours = time_map[time_range_text]
-# --- END OF CHANGE ---
 
 # --- The "Run" Button ---
 if st.button("Run Analysis", type="primary", use_container_width=True):
     try:
-        # --- CHANGE: Updated spinner text ---
         with st.spinner(f"Scraping the web for '{brand}' ({time_range_text})..."):
             scraped_data = scraper.fetch_all(
                 brand=brand,
-                time_frame=hours,  # This now passes 24, 48, 168, or 720
+                time_frame=hours,
                 competitors=competitors,
                 industry=industry
             )
@@ -97,7 +94,7 @@ if st.button("Run Analysis", type="primary", use_container_width=True):
             st.warning("No mentions found. Try a broader timeframe or different keywords.")
             st.stop()
 
-        # 2. AI Sentiment Analysis
+        # AI Sentiment Analysis
         with st.spinner("Running AI sentiment analysis on results..."):
             temp_data = scraped_data['full_data']
             progress_bar = st.progress(0, text="Analyzing sentiment...")
@@ -109,17 +106,17 @@ if st.button("Run Analysis", type="primary", use_container_width=True):
             progress_bar.empty()
             st.session_state.full_data = temp_data
 
-        # 3. Compute KPIs
+        # Compute KPIs
         with st.spinner("Calculating KPIs..."):
             st.session_state.kpis = analysis.compute_kpis(
                 full_data=st.session_state.full_data,
                 campaign_messages=campaign_messages,
                 industry=industry,
-                hours=hours,  # This passes the correct hour number
+                hours=hours,
                 brand=brand
             )
 
-        # 4. Extract Keywords
+        # Extract Keywords
         all_text = " ".join([item["text"] for item in st.session_state.full_data])
         analysis.stop_words.add(brand.lower())
         for c in competitors:
@@ -129,7 +126,7 @@ if st.button("Run Analysis", type="primary", use_container_width=True):
 
         st.success("Analysis complete!")
 
-        # 5. Check for Alerts
+        # Check for Alerts
         sentiment_ratio = st.session_state.kpis.get('sentiment_ratio', {})
         neg_pct = sentiment_ratio.get('negative', 0) + sentiment_ratio.get('anger', 0)
         if neg_pct > 30:
@@ -228,14 +225,13 @@ if st.session_state.kpis:
     if st.button("Generate PDF Report", use_container_width=True):
         with st.spinner("Building your PDF report..."):
             try:
-                # --- THIS IS THE CHANGE: Pass the text string ---
                 md, pdf_bytes = report_gen.generate_report(
                     kpis=st.session_state.kpis,
                     top_keywords=st.session_state.top_keywords,
                     full_articles_data=st.session_state.full_data,
                     brand=brand,
                     competitors=competitors,
-                    timeframe_hours=time_range_text,  # Pass "Last 7 days"
+                    timeframe_hours=time_range_text,
                     include_json=False
                 )
 

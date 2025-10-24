@@ -8,11 +8,19 @@ from dotenv import load_dotenv
 # --- IMPORTANT: Use relative imports from the root ---
 # Load .env first, *then* import other modules
 load_dotenv()
-import scraper
-import analysis
-import report_gen
-import bedrock 
-import servicenow_integration
+try:
+    from .. import analysis
+    from .. import report_gen
+    from .. import scraper
+    from .. import bedrock 
+    from .. import servicenow_integration
+except ImportError:
+    # Fallback for when script is run directly (less ideal)
+    import analysis
+    import report_gen
+    import scraper
+    import bedrock 
+    import servicenow_integration
 
 
 def run_analysis(brand, time_range_text, hours, competitors, industry, campaign_messages):
@@ -114,8 +122,12 @@ def display_dashboard(brand, competitors, time_range_text):
                 'neutral': 'grey', 'mixed': 'orange',
                 'negative': 'red', 'anger': 'darkred'
             }
+            
+            # --- THIS IS THE FIX: Added 'hole=0.4' ---
             fig = px.pie(pie_data, names='Sentiment', values='Percent', title="AI Sentiment Distribution",
-                         color='Sentiment', color_discrete_map=color_map)
+                         color='Sentiment', color_discrete_map=color_map, hole=0.4)
+            # --- END OF FIX ---
+            
             st.plotly_chart(fig, use_container_width=True)
         else:
             st.write("No sentiment data to display.")

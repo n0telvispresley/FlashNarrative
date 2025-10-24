@@ -20,7 +20,7 @@ LIGHT_TEXT = "#EAEAEA"
 
 custom_css = f"""
 <style>
-    /* ... (Copy the full CSS string from above here) ... */
+    /* ... (Your full CSS string) ... */
     .stApp {{ background-color: {DARK_BG}; color: {LIGHT_TEXT}; }}
     [data-testid="stSidebar"] > div:first-child {{ background-color: {BLACK}; border-right: 1px solid {GOLD}; }}
     [data-testid="stSidebar"] .st-emotion-cache-16txtl3 {{ color: {BEIGE}; }}
@@ -41,6 +41,7 @@ custom_css = f"""
 """
 st.markdown(custom_css, unsafe_allow_html=True)
 # --- END OF CSS INJECTION ---
+
 
 try:
     from .. import analysis
@@ -99,7 +100,7 @@ def run_analysis(brand, time_range_text, hours, competitors, industry, campaign_
                 brand=brand
             )
 
-        # 4. Extract Keywords
+        # 4. Extract Keywords/Phrases
         all_text = " ".join([item["text"] for item in st.session_state.full_data])
         # Ensure stop_words exists before adding
         if hasattr(analysis, 'stop_words') and isinstance(analysis.stop_words, set):
@@ -107,7 +108,7 @@ def run_analysis(brand, time_range_text, hours, competitors, industry, campaign_
              for c in competitors:
                  analysis.stop_words.add(c.lower())
 
-        st.session_state.top_keywords = analysis.extract_keywords(all_text, top_n=10)
+        st.session_state.top_keywords = analysis.extract_keywords(all_text, top_n=10) # Now gets phrases too
 
         st.success("Analysis complete!")
 
@@ -136,6 +137,7 @@ def display_dashboard(brand, competitors, time_range_text):
     st.subheader("Key Performance Indicators")
     kpis = st.session_state.kpis
 
+    # Display KPIs in columns
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Media Impact (MIS)", f"{kpis.get('mis', 0):.0f}")
     col2.metric("Message Penetration (MPI)", f"{kpis.get('mpi', 0):.1f}%")
@@ -144,74 +146,78 @@ def display_dashboard(brand, competitors, time_range_text):
 
     # --- Charts ---
     st.subheader("Visual Analysis")
-    chart_col1, chart_col2 = st.columns(2)
 
-    with chart_col1:
-        # Sentiment Pie (Doughnut)
-        sentiment_ratio = kpis.get("sentiment_ratio", {})
-        if sentiment_ratio:
-            pie_data = pd.DataFrame({
-                'Sentiment': list(sentiment_ratio.keys()),
-                'Percent': list(sentiment_ratio.values())
-            })
-            color_map = {
-                'positive': 'green', 'appreciation': 'blue',
-                'neutral': 'grey', 'mixed': 'orange',
-                'negative': 'red', 'anger': 'darkred'
-            }
-            fig = px.pie(pie_data, names='Sentiment', values='Percent', title="AI Sentiment Distribution",
-                         color='Sentiment', color_discrete_map=color_map, hole=0.4)
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.write("No sentiment data to display.")
+    # --- REMOVED chart_col1, chart_col2 = st.columns(2) ---
 
-    with chart_col2:
-        # SOV Bar Chart
-        all_brands = kpis.get("all_brands", [brand] + competitors)
-        sov_values = kpis.get("sov", [0] * len(all_brands))
+    # --- REMOVED with chart_col1: ---
+    # Sentiment Pie (Doughnut) - Now displayed directly
+    sentiment_ratio = kpis.get("sentiment_ratio", {})
+    if sentiment_ratio:
+        pie_data = pd.DataFrame({
+            'Sentiment': list(sentiment_ratio.keys()),
+            'Percent': list(sentiment_ratio.values())
+        })
+        color_map = {
+            'positive': 'green', 'appreciation': 'blue',
+            'neutral': 'grey', 'mixed': 'orange',
+            'negative': 'red', 'anger': 'darkred'
+        }
+        fig = px.pie(pie_data, names='Sentiment', values='Percent', title="AI Sentiment Distribution",
+                     color='Sentiment', color_discrete_map=color_map, hole=0.4)
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.write("No sentiment data to display.")
 
-        sov_df = pd.DataFrame({'Brand': all_brands, 'Share of Voice (%)': sov_values})
-        fig_sov = px.bar(sov_df, x='Brand', y='Share of Voice (%)', title="Share of Voice (SOV)",
-                         color='Brand')
-        st.plotly_chart(fig_sov, use_container_width=True)
+    # --- REMOVED with chart_col2: ---
+    # SOV Bar Chart - Now displayed directly below the pie chart
+    all_brands = kpis.get("all_brands", [brand] + competitors)
+    sov_values = kpis.get("sov", [0] * len(all_brands))
+
+    sov_df = pd.DataFrame({'Brand': all_brands, 'Share of Voice (%)': sov_values})
+    fig_sov = px.bar(sov_df, x='Brand', y='Share of Voice (%)', title="Share of Voice (SOV)",
+                     color='Brand')
+    st.plotly_chart(fig_sov, use_container_width=True)
 
     # --- Data Tables ---
     st.subheader("Detailed Mentions")
-    data_col1, data_col2 = st.columns(2)
 
-    with data_col1:
-        # Top Keywords
-        st.markdown("**Top Keywords / Themes**")
-        top_keywords = st.session_state.top_keywords
-        if top_keywords:
-            kw_df = pd.DataFrame(top_keywords, columns=['Keyword', 'Frequency'])
-            st.dataframe(kw_df, use_container_width=True)
-        else:
-            st.write("- No keywords identified.")
+    # --- REMOVED data_col1, data_col2 = st.columns(2) ---
 
-    with data_col2:
-        # Recent Mentions
-        st.markdown("**Recent Mentions (All Brands)**")
-        if st.session_state.full_data:
-            display_data = []
-            for item in st.session_state.full_data[:20]:
-                display_data.append({
-                    'Sentiment': item.get('sentiment', 'N/A'),
-                    'Source': item.get('source', 'N/A'),
-                    'Mention': item.get('text', '')[:100] + "...",
-                    'Link': item.get('link', '#')
-                })
+    # --- REMOVED with data_col1: ---
+    # Top Keywords/Phrases - Now displayed directly
+    st.markdown("**Top Keywords & Phrases**") # Updated title
+    top_keywords = st.session_state.top_keywords
+    if top_keywords:
+        # Use a more descriptive column name
+        kw_df = pd.DataFrame(top_keywords, columns=['Keyword/Phrase', 'Frequency'])
+        st.dataframe(kw_df, use_container_width=True)
+    else:
+        st.write("- No keywords or phrases identified.")
 
-            st.dataframe(
-                pd.DataFrame(display_data),
-                column_config={
-                    "Link": st.column_config.LinkColumn("Link", display_text="Source Link")
-                },
-                use_container_width=True,
-                hide_index=True
-            )
-        else:
-            st.write("No mentions to display.")
+    # --- REMOVED with data_col2: ---
+    # Recent Mentions - Now displayed directly below keywords
+    st.markdown("**Recent Mentions (All Brands)**")
+    if st.session_state.full_data:
+        display_data = []
+        # Increase number shown? e.g., to 30
+        for item in st.session_state.full_data[:30]:
+            display_data.append({
+                'Sentiment': item.get('sentiment', 'N/A'),
+                'Source': item.get('source', 'N/A'),
+                'Mention': item.get('text', '')[:150] + "...", # Show more text?
+                'Link': item.get('link', '#')
+            })
+
+        st.dataframe(
+            pd.DataFrame(display_data),
+            column_config={
+                "Link": st.column_config.LinkColumn("Link", display_text="Source Link")
+            },
+            use_container_width=True,
+            hide_index=True
+        )
+    else:
+        st.write("No mentions to display.")
 
     # --- Report Generation ---
     st.subheader("Generate Report")
@@ -256,7 +262,7 @@ def display_dashboard(brand, competitors, time_range_text):
                     st.error("Failed to generate PDF report:\n" + traceback.format_exc())
                     st.session_state.show_pdf_download = False # Hide button on error
 
-    # --- NEW: Excel File Generation & Download ---
+    # Excel File Generation & Download
     with excel_col:
         # Check if there's data to export
         if st.session_state.full_data:
@@ -265,13 +271,13 @@ def display_dashboard(brand, competitors, time_range_text):
                 excel_data = []
                 for item in st.session_state.full_data:
                     excel_data.append({
-                        'Date': item.get('date', 'N/A'), # Add Date
+                        'Date': item.get('date', 'N/A'),
                         'Sentiment': item.get('sentiment', 'N/A'),
                         'Source': item.get('source', 'N/A'),
                         'Mention Text': item.get('text', ''),
                         'Link': item.get('link', '#'),
-                        'Likes': item.get('likes', 0), # Add Likes
-                        'Comments': item.get('comments', 0) # Add Comments
+                        'Likes': item.get('likes', 0),
+                        'Comments': item.get('comments', 0)
                     })
                 df_excel = pd.DataFrame(excel_data)
 
@@ -299,7 +305,7 @@ def display_dashboard(brand, competitors, time_range_text):
              # Disable button if no data
              st.button("Download All Mentions (Excel)", disabled=True, use_container_width=True, help="Run analysis first to generate data.")
 
-    # --- Conditionally show PDF download button ---
+    # Conditionally show PDF download button below the columns
     if st.session_state.get('show_pdf_download', False) and st.session_state.get('pdf_report_bytes'):
          st.download_button(
              label="Download PDF Summary Report",
@@ -341,7 +347,7 @@ def main():
 
     # --- Inputs ---
     st.subheader("Monitoring Setup")
-    col_i1, col_i2, col_i3 = st.columns(3)
+    col_i1, col_i2, col_i3 = st.columns(3) # Keep inputs side-by-side
 
     with col_i1:
         brand = st.text_input("Enter your brand name", value="Nike")

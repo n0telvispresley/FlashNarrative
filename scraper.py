@@ -13,6 +13,53 @@ Main public function:
 Returns:
     {'mentions': [...texts...], 'full_data': [...article dicts...]}
 """
+# scraper.py
+
+# ... (after the RSS_FEEDS_BY_INDUSTRY dictionary) ...
+
+# --- NEW: Data for dummy mentions ---
+DUMMY_FIRST_NAMES = ['John', 'Sarah', 'Mike', 'Emily', 'David', 'Jessica', 'Chris', 'Amanda', 'Matt', 'Laura', 'James', 'Anna']
+DUMMY_LAST_INITIALS = ['K.', 'S.', 'D.', 'M.', 'P.', 'R.', 'W.', 'B.', 'G.', 'T.']
+
+DUMMY_TEMPLATES = {
+    'positive': [
+        "Just got the new {brand} and I'm obsessed! Best purchase all year. 🔥",
+        "Shoutout to {brand} for their amazing customer service. 10/10!",
+        "I love my {brand}! It's awesome and works perfectly.",
+        "Honestly, {brand} is the best in the game. Highly recommend."
+    ],
+    'negative': [
+        "My {brand} broke after just one week. So disappointed.",
+        "Ugh, {brand} is terrible. I hate it. Worst experience ever.",
+        "Avoid {brand} at all costs. It's an awful product.",
+        "I'm so mad at {brand} right now. Their new update is the worst."
+    ],
+    'neutral': [
+        "Just saw an ad for {brand}.",
+        "Thinking about buying a {brand} later today.",
+        "My friend has a {brand}.",
+        "The {brand} headquarters is downtown."
+    ],
+    'mixed': [
+        "I like the new {brand}, but the battery life is pretty bad.",
+        "The {brand} is great, although it's way too expensive for what it is.",
+        "It's a decent product, however, the old {brand} was better.",
+        "The design is awesome, yet the software feels unfinished."
+    ],
+    'appreciation': [
+        "Thanks {brand} for making such a great product!",
+        "Big appreciation post for the {brand} team. You guys rock!",
+        "So grateful for {brand}. You saved me so much time.",
+        "Kudos to {brand} for their new eco-friendly packaging."
+    ],
+    'anger': [
+        "I'm furious with {brand}! My order is a month late!",
+        "This is an outrage! {brand} completely scammed me.",
+        "Absolutely mad at {brand}. Never buying from them again.",
+        "The rage I feel towards {brand} is unreal. What a terrible company."
+    ]
+}
+
 
 import os
 import json
@@ -138,18 +185,33 @@ def _simple_domain_from_url(url):
         return url
 
 # Dummy fallback generator (keeps your old behavior for social)
+# scraper.py
+
+# Dummy fallback generator (UPDATED)
 def generate_dummy_mentions(brand, competitors, time_frame, source_type):
     mentions = []
     all_brands = [brand] + competitors
+
     for _ in range(random.randint(5, 15)):
+        # Pick a random brand and user
         mentioned = random.choice(all_brands)
-        text = f"Dummy mention of {mentioned} in {source_type}."
+        user = f"{random.choice(DUMMY_FIRST_NAMES)} {random.choice(DUMMY_LAST_INITIALS)}"
+
+        # Pick a random sentiment and create the text
+        sentiment_type = random.choice(list(DUMMY_TEMPLATES.keys()))
+        template = random.choice(DUMMY_TEMPLATES[sentiment_type])
+        text = f"@{user}: {template.format(brand=mentioned)}"
+
         source = f"dummy.{source_type}.com"
-        date = (datetime.now() - timedelta(hours=random.randint(1, time_frame))).strftime("%Y-%m-%d %H:%M")
+        # Ensure the dummy date is in ISO format like the real scrapers
+        date_dt = datetime.now(timezone.utc) - timedelta(hours=random.randint(1, time_frame))
+        date = date_dt.isoformat()
+
         likes = random.randint(10, 1000) if source_type != 'news' else 0
         comments = random.randint(1, 100) if source_type != 'news' else 0
         authority = random.randint(1, 10)
         reach = random.randint(1000, 100000)
+
         mentions.append({
             'text': text,
             'source': source,
@@ -160,6 +222,8 @@ def generate_dummy_mentions(brand, competitors, time_frame, source_type):
             'reach': reach,
             'likes': likes,
             'comments': comments
+            # Note: We don't add 'sentiment' here. 
+            # The AI (Bedrock) is responsible for analyzing this text.
         })
     return mentions
 

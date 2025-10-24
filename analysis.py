@@ -4,7 +4,7 @@ from collections import Counter
 import re
 
 # Download NLTK resources if needed
-nltk.download('punkt', quiet=True)
+nltk.download('punkt_tab', quiet=True)
 
 def analyze_sentiment(mentions):
     """

@@ -19,22 +19,6 @@ except ImportError as e:
     st.error(f"Failed to import modules: {e}. Check if scraper.py, analysis.py, report_gen.py, and servicenow_integration.py are in the root directory.")
     st.stop()
 
-# Rest of your code remains unchanged
-# Initialize NLTK
-try:
-    nltk.download('punkt', quiet=True)
-except Exception as e:
-    st.warning(f"NLTK setup failed: {e}")
-
-# Check login
-if not st.session_state.get('logged_in', False):
-    st.error("Please log in first.")
-    st.switch_page("pages/landing.py")
-
-# Dashboard UI
-st.title("Flash Narrative Dashboard")
-# ... (rest of your code)
-
 # Initialize NLTK
 try:
     nltk.download('punkt', quiet=True)
@@ -132,7 +116,8 @@ if st.button("Refresh"):
     st.rerun()
 
 # Comments:
-# - Added try/except for imports to catch errors early.
+# - Updated imports to use 'FlashNarrative' to match case-sensitive repository name.
+# - Assumes scraper.py, analysis.py, report_gen.py, and servicenow_integration.py are in the root directory.
 # - All features (KPIs, charts, PDF, alerts) included.
 # - Mock alerts print to console if creds missing.
 # - Use with updated requirements.txt.

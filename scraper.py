@@ -355,6 +355,88 @@ def fetch_google_news_html(brand, time_frame_hours, competitors):
     except Exception as e:
         print(f"[Google News HTML Error] {e}")
         return []
+
+
+# scraper.py
+
+# ... (add this function after fetch_google_news_html) ...
+
+def fetch_reddit(brand, time_frame_hours, competitors):
+    """
+    Fetches real-time social mentions from Reddit.
+    """
+    try:
+        query = f"{brand} OR {' OR '.join(competitors)}" if competitors else brand
+        
+        # Map hours to Reddit's 't' parameter (hour, day, week, month, year)
+        h = int(time_frame_hours)
+        if h <= 2:
+            time_filter = 'hour' # Use 'hour' for very recent
+        elif h <= 24:
+            time_filter = 'day'
+        elif h <= 168:
+            time_filter = 'week'
+        elif h <= 720:
+            time_filter = 'month'
+        else:
+            time_filter = 'year'
+
+        # Use the .json endpoint for clean, reliable scraping
+        url = f"https://www.reddit.com/search.json?q={quote_plus(query)}&sort=new&t={time_filter}"
+        
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+        resp = requests.get(url, headers=headers, timeout=10)
+        resp.raise_for_status()
+        
+        payload = resp.json()
+        mentions = []
+        
+        # Get the strict UTC cutoff time
+        cutoff_dt = datetime.now(timezone.utc) - timedelta(hours=time_frame_hours)
+
+        for post in payload.get('data', {}).get('children', []):
+            data = post.get('data', {})
+            
+            # Strict time check using UTC timestamp
+            created_utc = data.get('created_utc')
+            if not created_utc:
+                continue
+            dt = datetime.fromtimestamp(created_utc, tz=timezone.utc)
+            
+            if dt < cutoff_dt:
+                continue # Post is older than our precise timeframe
+            
+            title = data.get('title', '')
+            selftext = data.get('selftext', '')
+            text = (title + ' ' + selftext).strip() # Combine title and body
+            link = "https://www.reddit.com" + data.get('permalink', '')
+            domain = f"reddit.com/r/{data.get('subreddit', 'all')}"
+
+            # Check if any of our brands are actually in the text
+            mentioned_brands = [b for b in [brand] + (competitors or []) if b.lower() in text.lower()]
+            
+            if not mentioned_brands:
+                continue # Skip if brand isn't in the text
+
+            mentions.append({
+                'text': text,
+                'source': domain,
+                'date': dt.isoformat(), # Use standard ISO format
+                'link': link,
+                'mentioned_brands': mentioned_brands,
+                'authority': 4, # Reddit is user-gen, so lower authority
+                'reach': data.get('score', 0) * 10, # Estimate reach based on upvotes
+                'likes': data.get('score', 0), # 'likes' = upvotes
+                'comments': data.get('num_comments', 0)
+            })
+        return mentions
+    except Exception as e:
+        print(f"[Reddit Scraper Error] {e}")
+        return []
+
+
 # Public interface
 def fetch_all(brand, time_frame, competitors=None, industry='default'):
     """

@@ -13,3 +13,5 @@ schedule
 jmespath
 nested_lookup
 parsel
+feedparser
+python-dateutil

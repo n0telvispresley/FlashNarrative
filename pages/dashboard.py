@@ -9,6 +9,39 @@ import io # <-- IMPORT IO FOR EXCEL
 # --- IMPORTANT: Use relative imports from the root ---
 # Load .env first, *then* import other modules
 load_dotenv()
+
+# --- ADD CUSTOM CSS HERE ---
+# Define your brand colors (adjust hex codes as needed)
+GOLD = "#FFD700"
+BLACK = "#000000"
+BEIGE = "#F5F5DC"
+DARK_BG = "#1E1E1E"
+LIGHT_TEXT = "#EAEAEA"
+
+custom_css = f"""
+<style>
+    /* ... (Copy the full CSS string from above here) ... */
+    .stApp {{ background-color: {DARK_BG}; color: {LIGHT_TEXT}; }}
+    [data-testid="stSidebar"] > div:first-child {{ background-color: {BLACK}; border-right: 1px solid {GOLD}; }}
+    [data-testid="stSidebar"] .st-emotion-cache-16txtl3 {{ color: {BEIGE}; }}
+    [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {{ color: {GOLD}; }}
+    .stApp h1, .stApp h2, .stApp h3 {{ color: {GOLD}; }}
+    .stButton>button {{ background-color: {GOLD}; color: {BLACK}; border: 1px solid {GOLD}; border-radius: 5px; padding: 0.5em 1em; }}
+    .stButton>button:hover {{ background-color: {BLACK}; color: {GOLD}; border: 1px solid {GOLD}; }}
+    .stTextInput input, .stTextArea textarea {{ background-color: {DARK_BG}; color: {LIGHT_TEXT}; border: 1px solid {BEIGE}; border-radius: 5px; }}
+    .stSelectbox div[data-baseweb="select"] > div {{ background-color: {DARK_BG}; color: {LIGHT_TEXT}; border: 1px solid {BEIGE}; }}
+    .stDataFrame {{ border: 1px solid {BEIGE}; border-radius: 5px; }}
+    .stDataFrame thead th {{ background-color: {BLACK}; color: {GOLD}; }}
+    .stDataFrame tbody tr {{ background-color: {DARK_BG}; color: {LIGHT_TEXT}; }}
+    .stDataFrame tbody tr:nth-child(even) {{ background-color: #2a2a2a; }}
+    [data-testid="stMetricValue"], [data-testid="stMetricLabel"] {{ color: {LIGHT_TEXT}; }}
+    [data-testid="stMetricLabel"] {{ color: {BEIGE}; }}
+    .streamlit-expanderHeader {{ background-color: {BLACK}; color: {GOLD}; border: 1px solid {GOLD}; border-radius: 5px; }}
+</style>
+"""
+st.markdown(custom_css, unsafe_allow_html=True)
+# --- END OF CSS INJECTION ---
+
 try:
     from .. import analysis
     from .. import report_gen

@@ -6,20 +6,16 @@ from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
 import matplotlib.pyplot as plt
-from bedrock import generate_llm_report_summary # <-- IMPORT THE AI
+from bedrock import generate_llm_report_summary 
 
 def _create_sentiment_pie(sentiment_ratio):
     labels, sizes, colors = [], [], []
     color_map = {
-        'positive': 'green',
-        'appreciation': 'blue',
-        'neutral': 'grey',
-        'mixed': 'orange',
-        'negative': 'red',
-        'anger': 'darkred'
+        'positive': 'green', 'appreciation': 'blue',
+        'neutral': 'grey', 'mixed': 'orange',
+        'negative': 'red', 'anger': 'darkred'
     }
     
-    # Ensure consistent order
     for tone in ['positive', 'appreciation', 'neutral', 'mixed', 'negative', 'anger']:
         val = float(sentiment_ratio.get(tone, 0))
         if val > 0:
@@ -42,31 +38,29 @@ def _create_sentiment_pie(sentiment_ratio):
     buf.seek(0)
     return buf
 
-# UPDATED function signature
-# report_gen.py
-
-# ... (imports) ...
-
-# ... (_create_sentiment_pie function) ...
-
-# timeframe_hours can now be an int (like 24) or a string (like "Last 7 days")
+# --- THIS IS THE CHANGE: timeframe_hours can now be a string ---
 def generate_report(kpis, top_keywords, full_articles_data, brand="Brand", competitors=None, timeframe_hours=24, include_json=False):
+    if competitors is None: competitors = []
     
-    # ... (KPI setup) ...
+    sentiment_ratio = kpis.get('sentiment_ratio', {})
+    sov = kpis.get('sov', [])
+    all_brands = kpis.get('all_brands', [brand] + competitors)
+    mis = kpis.get('mis', 0)
+    mpi = kpis.get('mpi', 0)
+    engagement = kpis.get('engagement_rate', 0)
+    reach = kpis.get('reach', 0)
     generated_on = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
 
-    # --- THIS IS THE CHANGE ---
-    # Smartly format the time text
+    # --- NEW: Smartly format the time text ---
     if isinstance(timeframe_hours, int):
         time_text = f"the last {timeframe_hours} hours"
     else:
         time_text = timeframe_hours # It's already a string like "Last 30 days (Max)"
-    # --- END OF CHANGE ---
-
+    # --- END OF NEW CODE ---
 
     # ---- Markdown Generation ----
     md_lines = [f"# Flash Narrative Report for {brand}",
-                f"*This report covers {time_text}.*", ,
+                f"*This report covers {time_text}.*", # <-- UPDATED
                 f"**Generated on:** {generated_on}",
                 "\n## Key Performance Indicators",
                 f"- **Media Impact Score (MIS):** {mis}",
@@ -91,16 +85,19 @@ def generate_report(kpis, top_keywords, full_articles_data, brand="Brand", compe
 
     # ---- AI Recommendations ----
     md_lines.append("\n## AI-Powered Summary & Recommendations")
-    
-    # Filter articles to only include those with sentiment
     articles_with_sentiment = [a for a in full_articles_data if 'sentiment' in a]
     ai_recommendations = generate_llm_report_summary(kpis, top_keywords, articles_with_sentiment, brand)
     md_lines.append(ai_recommendations)
 
     md = "\n".join(md_lines)
 
- # ---- PDF Generation ----
-    # ... (canvas setup) ...
+    # ---- PDF Generation ----
+    pdf_buffer = io.BytesIO()
+    c = canvas.Canvas(pdf_buffer, pagesize=letter)
+    width, height = letter
+    margin_x = 50
+    y = height - 60
+    
     c.setFont("Helvetica-Bold", 18)
     c.drawString(margin_x, y, f"Flash Narrative Report — {brand}")
     y -= 28
@@ -119,8 +116,6 @@ def generate_report(kpis, top_keywords, full_articles_data, brand="Brand", compe
 
     # Sentiment pie
     pie_buf = _create_sentiment_pie(sentiment_ratio)
-    img = ImageReader(pie_buf)
-    # Position pie chart
     c.drawImage(img, width - margin_x - 200, height - 200, width=200, height=200, preserveAspectRatio=True, mask='auto')
 
     # Keywords
@@ -131,35 +126,34 @@ def generate_report(kpis, top_keywords, full_articles_data, brand="Brand", compe
     for w, f in top_keywords[:10]: # Limit to top 10
         text = f"- {w}: {f}"
         c.drawString(margin_x, y, text); y -= 12
-        if y < 100: # Page break logic
+        if y < 100: 
             c.showPage(); y = height - 60
             c.setFont("Helvetica", 10)
 
     # AI Recommendations
     y -= 20
-    if y < 200: # Check for page break before starting section
+    if y < 200: 
         c.showPage(); y = height - 60
         
     c.setFont("Helvetica-Bold", 12)
     c.drawString(margin_x, y, "AI Summary & Recommendations"); y -= 16
     
-    # Use textwrap for the new AI recommendations
     recs = ai_recommendations.split('\n') 
     for r in recs:
         r = r.strip()
-        if not r: # Skip empty lines
+        if not r:
             y -= 6
             continue
             
         if r.startswith("**"):
             c.setFont("Helvetica-Bold", 10)
-            r = r.replace("**", "") # Remove markdown
+            r = r.replace("**", "")
         else:
             c.setFont("Helvetica", 10)
              
         for line in textwrap.wrap(r, width=90):
             c.drawString(margin_x, y, line); y -= 12
-            if y < 60: # Page break
+            if y < 60: 
                 c.showPage(); y = height - 60
                 c.setFont("Helvetica", 10)
 

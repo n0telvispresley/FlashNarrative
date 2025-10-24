@@ -55,7 +55,7 @@ with col_i2:
 with col_i3:
     industry = st.selectbox(
         "Select Industry (for better RSS results)",
-        ['default', 'tech', 'finance', 'healthcare', 'retail'],
+        ['default', 'tech', 'finance', 'healthcare', 'retail', 'personal brand'],
         index=0
     )
 

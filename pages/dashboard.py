@@ -6,7 +6,7 @@ import traceback
 from dotenv import load_dotenv
 
 # Load .env variables at the top
-load_dotenv() 
+    load_dotenv() 
 
 # --- IMPORTANT: Use relative imports from the root ---
 import analysis

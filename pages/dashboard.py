@@ -2,9 +2,20 @@ import streamlit as st
 import sys
 import os
 import traceback
+import pandas as pd
+import plotly.express as px
+import nltk
+import io
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+import smtplib
+from email.mime.text import MIMEText
+from slack_sdk import WebClient
 
-# Add the root directory (/mount/src/flashnarrative/) to sys.path
+# Clean sys.path to remove duplicates and add project root
+sys.path = list(dict.fromkeys(sys.path))  # Remove duplicates
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 # Debug: Print sys.path and working directory
 st.write(f"sys.path: {sys.path}")
 st.write(f"Working directory: {os.getcwd()}")
@@ -29,16 +40,6 @@ def list_directory(path, indent=""):
 structure = list_directory(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 st.write("\n".join(structure))
 
-import pandas as pd
-import plotly.express as px
-import nltk
-import io
-from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen import canvas
-import smtplib
-from email.mime.text import MIMEText
-from slack_sdk import WebClient
-
 # Debug: Test module imports and function existence
 module_status = {}
 try:
@@ -47,7 +48,6 @@ try:
     module_status["scraper"] = True
 except SyntaxError as e:
     st.error(f"SyntaxError in scraper.py: {e}")
-    # Attempt to read the problematic line
     try:
         with open(os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')), 'scraper.py'), 'r') as f:
             lines = f.readlines()
@@ -66,11 +66,11 @@ except Exception as e:
     module_status["scraper"] = False
 
 try:
-    from analysis import analyze_sentiment, compute_kpis
-    st.write("analysis.py: analyze_sentiment and compute_kpis imported successfully")
+    from analysis import analyze_sentiment, compute_kpis, extract_keywords
+    st.write("analysis.py: analyze_sentiment, compute_kpis, extract_keywords imported successfully")
     module_status["analysis"] = True
 except Exception as e:
-    st.error(f"Failed to import analyze_sentiment or compute_kpis from analysis.py: {e}")
+    st.error(f"Failed to import analyze_sentiment, compute_kpis, or extract_keywords from analysis.py: {e}")
     module_status["analysis"] = False
 
 try:
@@ -91,7 +91,8 @@ except Exception as e:
 
 # Initialize NLTK
 try:
-    nltk.download('punkt', quiet=True)
+    os.environ['NLTK_DATA'] = '/mount/src/flashnarrative/nltk_data'
+    nltk.download('punkt_tab', quiet=True, download_dir='/mount/src/flashnarrative/nltk_data')
 except Exception as e:
     st.warning(f"NLTK setup failed: {e}")
 
@@ -99,6 +100,18 @@ except Exception as e:
 if not st.session_state.get('logged_in', False):
     st.error("Please log in first.")
     st.switch_page("pages/landing.py")
+
+# Initialize session state
+if 'data' not in st.session_state:
+    st.session_state['data'] = None
+if 'kpis' not in st.session_state:
+    st.session_state['kpis'] = None
+if 'top_keywords' not in st.session_state:
+    st.session_state['top_keywords'] = []
+if 'md' not in st.session_state:
+    st.session_state['md'] = ""
+if 'pdf_bytes' not in st.session_state:
+    st.session_state['pdf_bytes'] = b""
 
 # Dashboard UI
 st.title("Flash Narrative Dashboard")
@@ -109,12 +122,6 @@ time_frame = st.slider("Time Frame (hours)", 1, 48, 24)
 industry = st.selectbox("Industry", ["Tech", "Finance", "Healthcare", "Retail"])
 competitors = st.multiselect("Competitors (up to 3)", ["Competitor1", "Competitor2", "Competitor3"], max_selections=3)
 campaign_messages = st.text_area("Campaign Messages for MPI", value="Message1,Message2")
-
-# Session state
-if 'data' not in st.session_state:
-    st.session_state['data'] = None
-if 'kpis' not in st.session_state:
-    st.session_state['kpis'] = None
 
 # Analyze button
 if st.button("Analyze"):
@@ -127,18 +134,19 @@ if st.button("Analyze"):
             st.session_state['data'] = data
             
             # Analyze sentiment
-            sentiments, tones = analyze_sentiment(data['mentions'])
+            mentions = [item['text'] for item in data['full_data']]  # Adjust based on scraper.py output
+            sentiments, tones = analyze_sentiment(mentions)
             
-            # Extract keywords
-            all_text = ' '.join(data['mentions'])
-            top_keywords = nltk.FreqDist(nltk.word_tokenize(all_text.lower())).most_common(10)
+            # Extract keywords using analysis.py
+            all_text = ' '.join(mentions)
+            st.session_state['top_keywords'] = extract_keywords(all_text)
             
             # Compute KPIs
             kpis = compute_kpis(data['full_data'], tones, campaign_messages.split(','), industry)
             st.session_state['kpis'] = kpis
             
             # Alerts
-            if module_status.get("servicenow_integration", False) and (kpis['sentiment_ratio'].get('negative', 0) > 50 or any('nytimes.com' in m['source'] for m in data['full_data'] if m['sentiment'] == 'negative')):
+            if module_status.get("servicenow_integration", False) and (kpis['sentiment_ratio'].get('negative', 0) > 50 or any('nytimes.com' in m['source'] for m in data['full_data'] if m.get('sentiment') == 'negative')):
                 try:
                     create_servicenow_ticket("PR Crisis Alert", "Negative spike or high-priority mention detected.")
                     st.success("Alert sent (check console for mock).")
@@ -173,7 +181,8 @@ if st.session_state['kpis']:
         st.metric("Reach/Impressions", kpis['reach'])
         
         st.subheader("Top Keywords")
-        st.table(pd.DataFrame(top_keywords, columns=['Keyword', 'Frequency']))
+        if st.session_state['top_keywords']:
+            st.table(pd.DataFrame(st.session_state['top_keywords'], columns=['Keyword', 'Frequency']))
     
     # PDF Report
     if st.button("Generate PDF Report"):
@@ -181,22 +190,34 @@ if st.session_state['kpis']:
             st.error("Cannot generate report: report_gen.py failed to import.")
         else:
             try:
-                md, pdf_bytes = generate_report(kpis, top_keywords, brand, competitors)
-                st.download_button("Download Report", pdf_bytes, file_name="report.pdf", mime="application/pdf")
-                st.markdown(md)
+                md, pdf_bytes = generate_report(kpis, st.session_state['top_keywords'], brand, competitors)
+                st.session_state['md'] = md
+                st.session_state['pdf_bytes'] = pdf_bytes
+                st.download_button(
+                    label="Download Report",
+                    data=st.session_state['pdf_bytes'],
+                    file_name=f"{brand}_report.pdf",
+                    mime="application/pdf"
+                )
+                st.markdown(st.session_state['md'])
             except Exception as e:
                 st.error(f"PDF generation failed: {e}")
 
 # Refresh button
 if st.button("Refresh"):
+    st.session_state['data'] = None
+    st.session_state['kpis'] = None
+    st.session_state['top_keywords'] = []
+    st.session_state['md'] = ""
+    st.session_state['pdf_bytes'] = b""
     st.rerun()
 
 # Comments:
-# - Added detailed error reporting for scraper.py SyntaxError (line number and code).
-# - Lists directory structure of /mount/src/flashnarrative.
-# - Separated module imports with individual try/except blocks to isolate failures.
-# - Tracks module status to prevent crashes in Analyze/Report buttons if modules fail.
-# - Kept sys.path.append to include /mount/src/flashnarrative in the search path.
-# - All features (KPIs, charts, PDF, alerts) included, with checks for module availability.
-# - Mock alerts print to console if creds missing.
-# - Use with updated requirements.txt.
+# - Fixed NameError by storing top_keywords in st.session_state.
+# - Used extract_keywords from analysis.py instead of duplicating NLTK logic.
+# - Updated NLTK to use punkt_tab and set NLTK_DATA path.
+# - Cleaned sys.path to remove duplicates.
+# - Persisted md and pdf_bytes in session_state for PDF generation.
+# - Ensured scraper.py output is accessed correctly (assumes 'full_data' key).
+# - Maintained debug output and directory listing.
+# - Use with updated requirements.txt and fixed servicenow_integration.py.

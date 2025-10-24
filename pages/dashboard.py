@@ -11,9 +11,9 @@ load_dotenv()
 # --- IMPORTANT: Use relative imports from the root ---
 import analysis
 import report_gen
-import scraper
-import bedrock # <-- IMPORT YOUR AI
-import servicenow_integration # For alerts
+import scraper  # Fixed the erroneous period
+import bedrock
+import servicenow_integration
 
 # --- Page Config & Auth Check ---
 st.set_page_config(page_title="FlashNarrative Dashboard", layout="wide")

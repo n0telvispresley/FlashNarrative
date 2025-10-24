@@ -1,4 +1,3 @@
-```python
 import nltk
 from nltk.probability import FreqDist
 from collections import Counter
@@ -88,7 +87,7 @@ def compute_kpis(full_data, tones, campaign_messages, industry):
     counts = Counter(tones)
     sentiment_ratio = {tone: count / total_mentions * 100 for tone, count in counts.items()}
 
-    # MIS: sum authority for positive mentions (as per example)
+    # MIS: sum authority for positive mentions
     mis = sum(item['authority'] for item in full_data if item['sentiment'] == 'positive')
 
     # MPI: average matches of campaign messages in mentions
@@ -117,8 +116,3 @@ def compute_kpis(full_data, tones, campaign_messages, industry):
         'engagement_rate': engagement_rate,
         'reach': reach
     }
-
-# Comments: Simple keyword matching for sentiment; use re for whole words.
-# KPIs computed with basic aggregations; industry not used for simplicity.
-# Focus on brand-agnostic for most, but SOV includes competitors.
-```

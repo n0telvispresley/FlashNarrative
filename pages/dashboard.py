@@ -9,10 +9,11 @@ import smtplib
 from email.mime.text import MIMEText
 from slack_sdk import WebClient
 try:
-    from scraper import fetch_all
-    from analysis import analyze_sentiment, compute_kpis
-    from report_gen import generate_report
-    from servicenow_integration import create_servicenow_ticket
+    # dashboard.py
+from ..scraper import fetch_all  # Go up one directory to find scraper.py
+    from ..analysis import analyze_sentiment, compute_kpis
+    from ..report_gen import generate_report
+    from ..servicenow_integration import create_servicenow_ticket
 except ImportError as e:
     st.error(f"Failed to import modules: {e}. Check if scraper.py, analysis.py, report_gen.py, and servicenow_integration.py are in the root directory.")
     st.stop()

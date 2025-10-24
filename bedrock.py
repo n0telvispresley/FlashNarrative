@@ -5,7 +5,6 @@ import os
 import streamlit as st
 
 # --- Bedrock Client Setup ---
-# Use st.cache_resource to initialize the client once
 @st.cache_resource
 def get_bedrock_client():
     try:
@@ -20,14 +19,18 @@ def get_bedrock_client():
             aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
             aws_secret_access_key=os.getenv("AWS_SECRET_KEY")
         )
+        # Add a check to ensure the client was created
+        if bedrock_client:
+            print(f"Bedrock client initialized successfully for region {aws_region}.")
+        else:
+            print("Failed to initialize Bedrock client.")
         return bedrock_client
     except Exception as e:
         st.error(f"Error initializing Bedrock client: {e}")
         return None
 
-# Define the model ID
-# Haiku is fast and cheap, perfect for a hackathon.
-MODEL_ID = "anthropic.claude-4.5-sonnet-202509"
+# Use the most powerful model
+MODEL_ID = "anthropic.claude-3-opus-20240229-v1:0"
 
 def get_llm_sentiment(text_chunk):
     """
@@ -37,30 +40,34 @@ def get_llm_sentiment(text_chunk):
     if not bedrock_client:
         return "neutral" # Fallback
 
-    # Clean text for the prompt
-    text_chunk = (text_chunk or "")[:500] # Truncate to save tokens
+    text_chunk = (text_chunk or "")[:500] # Truncate
 
+    # --- THIS IS THE IMPROVED PROMPT ---
     prompt = f"""
-    Human: Analyze the sentiment of the following news headline or social media post.
-    Respond with only a single word: 'positive', 'negative', 'neutral', 'mixed', 'anger', or 'appreciation'.
-    
-    <text>
-    {text_chunk}
-    </text>
+Human: Carefully analyze the sentiment expressed in the following text. Consider the overall tone and context.
+Respond with only ONE of the following words: positive, negative, neutral, mixed, anger, appreciation.
+If the text is purely informational or objective with no clear emotion, classify it as neutral.
+Do not provide explanations, just the single word classification.
 
-    Assistant:
-    """
+<text>
+{text_chunk}
+</text>
+
+Assistant:
+"""
+    # --- END OF IMPROVED PROMPT ---
 
     try:
         body = json.dumps({
             "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": 10,
+            "max_tokens": 10, # Needs very few tokens for a single word
             "messages": [
                 {
                     "role": "user",
                     "content": [{"type": "text", "text": prompt}]
                 }
-            ]
+            ],
+            "temperature": 0.1 # Lower temperature for more deterministic classification
         })
 
         response = bedrock_client.invoke_model(
@@ -71,20 +78,33 @@ def get_llm_sentiment(text_chunk):
         )
         
         response_body = json.loads(response.get('body').read())
-        sentiment = response_body.get('content')[0].get('text').lower().strip().replace(".", "")
-        
+        # Add error checking for response structure
+        if response_body.get('content') and isinstance(response_body['content'], list) and len(response_body['content']) > 0:
+            sentiment = response_body['content'][0].get('text', '').lower().strip().replace(".", "")
+        else:
+            print(f"Unexpected Bedrock response format: {response_body}")
+            return "neutral" # Fallback if response format is weird
+
         valid_sentiments = ['positive', 'negative', 'neutral', 'mixed', 'anger', 'appreciation']
         if sentiment in valid_sentiments:
             return sentiment
         else:
-            return "neutral" # Default if LLM gives a weird response
+            # If the model didn't give a valid word, try to map common alternatives
+            if "positive" in sentiment: return "positive"
+            if "negative" in sentiment: return "negative"
+            if "neutral" in sentiment: return "neutral"
+            print(f"Bedrock returned unexpected sentiment: '{sentiment}'. Defaulting to neutral.")
+            return "neutral" 
 
     except Exception as e:
-        # --- IMPROVED ERROR ---
         error_msg = f"Bedrock sentiment error: {e}"
         print(error_msg)
         if "AccessDeniedException" in str(e):
-            st.warning("AWS Error: Model access for Claude 3 Haiku is not enabled. Please enable it in the Amazon Bedrock console.")
+            st.warning("AWS Error: Model access for Claude 3 Opus is not enabled. Please enable it in the Amazon Bedrock console.")
+        # Add more specific error handling if needed
+        elif "ValidationException" in str(e) and "max_tokens" in str(e):
+             st.warning("AWS Error: Check max_tokens setting for Bedrock.")
+        
         return "neutral" # Fallback
 
 def generate_llm_report_summary(kpis, top_keywords, articles, brand):
@@ -101,25 +121,30 @@ def generate_llm_report_summary(kpis, top_keywords, articles, brand):
     Sentiment Ratio: {kpis.get('sentiment_ratio', {})}
     Top Keywords: {', '.join([k[0] for k in top_keywords])}
     
-    Major Headlines (Positive):
-    {[a['text'] for a in articles if a.get('sentiment') == 'positive'][:3]}
+    Major Headlines (Positive/Appreciation):
+    {[a['text'][:150] for a in articles if a.get('sentiment') in ['positive', 'appreciation']][:3]} 
     
     Major Headlines (Negative/Anger):
-    {[a['text'] for a in articles if a.get('sentiment') in ['negative', 'anger']][:3]}
-    """
+    {[a['text'][:150] for a in articles if a.get('sentiment') in ['negative', 'anger']][:3]}
+    """ # Truncate headlines
 
     prompt = f"""
-    Human: You are a professional PR crisis manager. Based on the following data summary for the brand '{brand}',
-    write a 2-bullet point summary of the situation and 2-3 actionable recommendations.
-    Format your response *exactly* like this, using markdown:
+    Human: You are a professional PR crisis manager analyzing recent online mentions for the brand '{brand}'.
+    Based *only* on the provided data summary below, write a concise report with:
+    1.  A '**Summary:**' section (2 bullet points MAX) highlighting the key sentiment trends or themes.
+    2.  A '**Recommendations:**' section (2-3 actionable bullet points) for the PR team.
     
+    Keep the language professional and direct. Do not add any introductory or concluding sentences.
+    Format your response *exactly* like this example:
+
     **Summary:**
-    * [Your summary bullet point 1]
-    * [Your summary bullet point 2]
-    
+    * Overall sentiment appears [positive/negative/mixed], driven by [mention key theme or keywords].
+    * [Mention another key observation, e.g., competitor performance, specific sentiment spike].
+
     **Recommendations:**
-    * [Your recommendation bullet point 1]
-    * [Your recommendation bullet point 2]
+    * [Actionable step 1, e.g., Amplify positive mentions about X on social media].
+    * [Actionable step 2, e.g., Investigate negative feedback regarding Y and prepare a response].
+    * [Optional Actionable step 3].
 
     <data>
     {data_summary}
@@ -131,13 +156,14 @@ def generate_llm_report_summary(kpis, top_keywords, articles, brand):
     try:
         body = json.dumps({
             "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": 500,
+            "max_tokens": 500, # Allow enough space for the report
             "messages": [
                 {
                     "role": "user",
                     "content": [{"type": "text", "text": prompt}]
                 }
-            ]
+            ],
+            "temperature": 0.7 # Allow for some creativity in recommendations
         })
 
         response = bedrock_client.invoke_model(
@@ -148,17 +174,26 @@ def generate_llm_report_summary(kpis, top_keywords, articles, brand):
         )
         
         response_body = json.loads(response.get('body').read())
-        report_text = response_body.get('content')[0].get('text')
-        return report_text
+        # Add error checking
+        if response_body.get('content') and isinstance(response_body['content'], list) and len(response_body['content']) > 0:
+            report_text = response_body['content'][0].get('text', '')
+            # Basic check to see if it follows the format
+            if "**Summary:**" not in report_text or "**Recommendations:**" not in report_text:
+                 print(f"Bedrock report format unexpected: {report_text[:100]}...")
+                 # You could add logic here to try and re-format or just return as-is
+            return report_text
+        else:
+            print(f"Unexpected Bedrock response format for report: {response_body}")
+            return "Error: Could not generate AI summary due to unexpected response."
+
 
     except Exception as e:
-        # --- IMPROVED ERROR ---
         error_msg = f"Bedrock report gen error: {e}"
         print(error_msg)
         
         fallback_msg = f"Error generating AI recommendations: {e}"
         if "AccessDeniedException" in str(e):
-            fallback_msg = "Error: Model access for Claude 3 Haiku is not enabled. Please enable it in the Amazon Bedrock console."
+            fallback_msg = "Error: Model access for Claude 3 Opus is not enabled. Please enable it in the Amazon Bedrock console."
             st.warning(fallback_msg) # Show in UI
         
         return fallback_msg

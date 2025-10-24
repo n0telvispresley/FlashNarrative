@@ -2,7 +2,7 @@
 import nltk
 from nltk.probability import FreqDist
 from collections import Counter
-import re
+import re # Make sure re is imported
 from datetime import datetime, timedelta, timezone
 from dateutil import parser as dateparser
 from nltk.collocations import BigramAssocMeasures, BigramCollocationFinder # <-- Import for bigrams
@@ -15,7 +15,49 @@ nltk.download('stopwords', quiet=True) # <-- Need stopwords for filtering phrase
 stop_words = set(nltk.corpus.stopwords.words('english'))
 stop_words.update(['com', 'www', 'http', 'https', 'co', 'uk', 'amp', 'rt', 'via']) # Add common web/social junk
 
-# --- UPDATED FUNCTION ---
+
+# --- ADD THIS FUNCTION BACK ---
+def analyze_sentiment_keywords(text):
+    """
+    Analyzes sentiment based on keywords and simple synonyms.
+    Returns a single sentiment string ('positive', 'negative', etc.). Used as fallback.
+    """
+    if not text: # Handle empty input
+        return 'neutral'
+    text_lower = text.lower()
+
+    # Define keywords and basic synonyms
+    positive_kws = ['good', 'great', 'excellent', 'positive', 'love', 'awesome', 'best', 'happy', 'like', 'amazing', 'superb', 'fantastic', 'recommend', 'perfect']
+    negative_kws = ['bad', 'poor', 'terrible', 'negative', 'hate', 'awful', 'worst', 'sad', 'dislike', 'broken', 'fail', 'issue', 'problem', 'disappointed', 'avoid']
+    anger_kws = ['angry', 'furious', 'rage', 'mad', 'outrage', 'pissed', 'fuming', 'livid']
+    appreciation_kws = ['thank', 'appreciate', 'grateful', 'thanks', 'kudos', 'cheers', 'props', 'helpful']
+    mixed_kws = ['but', 'however', 'although', 'yet', 'still', 'despite'] # Conjunctions
+
+    # Count keyword occurrences using regex for whole words
+    pos_count = sum(1 for k in positive_kws if re.search(r'\b' + re.escape(k) + r'\b', text_lower))
+    neg_count = sum(1 for k in negative_kws if re.search(r'\b' + re.escape(k) + r'\b', text_lower))
+    anger_count = sum(1 for k in anger_kws if re.search(r'\b' + re.escape(k) + r'\b', text_lower))
+    app_count = sum(1 for k in appreciation_kws if re.search(r'\b' + re.escape(k) + r'\b', text_lower))
+    has_mixed = any(re.search(r'\b' + re.escape(k) + r'\b', text_lower) for k in mixed_kws)
+
+    # Determine sentiment based on counts (prioritize stronger emotions)
+    if anger_count > 0:
+        return 'anger'
+    # Check for both pos/neg keywords OR a conjunction indicating mixed feelings
+    if (pos_count > 0 and neg_count > 0) or (has_mixed and (pos_count > 0 or neg_count > 0)):
+        return 'mixed'
+    if neg_count > 0:
+        return 'negative'
+    # Consider appreciation as positive unless it stands alone
+    if pos_count > 0:
+         return 'positive'
+    if app_count > 0: # If only appreciation keywords are found
+         return 'appreciation'
+
+    return 'neutral' # Default if no strong keywords found
+# --- END OF FUNCTION ---
+
+
 def extract_keywords(all_text, top_n=10):
     """
     Extracts top single keywords and two-word phrases (bigrams).
@@ -34,14 +76,8 @@ def extract_keywords(all_text, top_n=10):
 
     # --- Phrase (Bigram) Frequency ---
     finder = BigramCollocationFinder.from_words(filtered_tokens)
-    # Filter bigrams where either word is too short (optional, but cleans results)
-    # finder.apply_word_filter(lambda w: len(w) < 3)
-
-    # Score bigrams using Pointwise Mutual Information (PMI) or raw frequency
     bigram_measures = BigramAssocMeasures()
-    # scored_bigrams = finder.score_ngrams(bigram_measures.pmi) # PMI finds more meaningful phrases
-    # Or, for simplicity in a hackathon, just use frequency:
-    bigram_freq = finder.ngram_fd # This gives a FreqDist of ('word1', 'word2') tuples
+    bigram_freq = finder.ngram_fd
 
     # --- Combine Frequencies ---
     combined_freq = Counter()
@@ -59,7 +95,6 @@ def extract_keywords(all_text, top_n=10):
 
     # Return the top N most common items (words or phrases)
     return combined_freq.most_common(top_n)
-# --- END OF UPDATED FUNCTION ---
 
 
 def filter_by_hours(full_data, hours):
@@ -125,7 +160,7 @@ def compute_kpis(full_data, campaign_messages, industry=None, hours=None, brand=
         for b in present_brands:
              brand_counts[b] += 1
 
-    # Total mentions contributing to SOV (might be different from total_mentions if some have no brands)
+    # Total mentions contributing to SOV
     total_sov_mentions = sum(brand_counts.values())
     sov = [(brand_counts[b] / total_sov_mentions * 100) if total_sov_mentions > 0 else 0 for b in all_brands_list]
 

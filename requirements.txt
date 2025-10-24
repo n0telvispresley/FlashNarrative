@@ -18,3 +18,4 @@ feedparser
 python-dateutil
 matplotlib
 boto3
+openpyxl

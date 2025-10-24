@@ -80,7 +80,11 @@ def get_llm_sentiment(text_chunk):
             return "neutral" # Default if LLM gives a weird response
 
     except Exception as e:
-        print(f"Bedrock sentiment error: {e}")
+        # --- IMPROVED ERROR ---
+        error_msg = f"Bedrock sentiment error: {e}"
+        print(error_msg)
+        if "AccessDeniedException" in str(e):
+            st.warning("AWS Error: Model access for Claude 3 Haiku is not enabled. Please enable it in the Amazon Bedrock console.")
         return "neutral" # Fallback
 
 def generate_llm_report_summary(kpis, top_keywords, articles, brand):
@@ -148,5 +152,13 @@ def generate_llm_report_summary(kpis, top_keywords, articles, brand):
         return report_text
 
     except Exception as e:
-        print(f"Bedrock report gen error: {e}")
-        return "Error generating AI recommendations."
+        # --- IMPROVED ERROR ---
+        error_msg = f"Bedrock report gen error: {e}"
+        print(error_msg)
+        
+        fallback_msg = f"Error generating AI recommendations: {e}"
+        if "AccessDeniedException" in str(e):
+            fallback_msg = "Error: Model access for Claude 3 Haiku is not enabled. Please enable it in the Amazon Bedrock console."
+            st.warning(fallback_msg) # Show in UI
+        
+        return fallback_msg

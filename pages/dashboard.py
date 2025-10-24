@@ -7,13 +7,13 @@ from dotenv import load_dotenv
 
 # --- IMPORTANT: Use relative imports from the root ---
 # Load .env first, *then* import other modules
-load_dotenv() 
+load_dotenv()
+import scraper
 import analysis
 import report_gen
 import bedrock 
 import servicenow_integration
 
-import scraper
 
 def run_analysis(brand, time_range_text, hours, competitors, industry, campaign_messages):
     """

@@ -20,23 +20,86 @@ LIGHT_TEXT = "#EAEAEA"
 
 custom_css = f"""
 <style>
-    /* ... (Your full CSS string) ... */
-    .stApp {{ background-color: {DARK_BG}; color: {LIGHT_TEXT}; }}
-    [data-testid="stSidebar"] > div:first-child {{ background-color: {BLACK}; border-right: 1px solid {GOLD}; }}
-    [data-testid="stSidebar"] .st-emotion-cache-16txtl3 {{ color: {BEIGE}; }}
-    [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {{ color: {GOLD}; }}
-    .stApp h1, .stApp h2, .stApp h3 {{ color: {GOLD}; }}
-    .stButton>button {{ background-color: {GOLD}; color: {BLACK}; border: 1px solid {GOLD}; border-radius: 5px; padding: 0.5em 1em; }}
-    .stButton>button:hover {{ background-color: {BLACK}; color: {GOLD}; border: 1px solid {GOLD}; }}
-    .stTextInput input, .stTextArea textarea {{ background-color: {DARK_BG}; color: {LIGHT_TEXT}; border: 1px solid {BEIGE}; border-radius: 5px; }}
-    .stSelectbox div[data-baseweb="select"] > div {{ background-color: {DARK_BG}; color: {LIGHT_TEXT}; border: 1px solid {BEIGE}; }}
-    .stDataFrame {{ border: 1px solid {BEIGE}; border-radius: 5px; }}
-    .stDataFrame thead th {{ background-color: {BLACK}; color: {GOLD}; }}
-    .stDataFrame tbody tr {{ background-color: {DARK_BG}; color: {LIGHT_TEXT}; }}
-    .stDataFrame tbody tr:nth-child(even) {{ background-color: #2a2a2a; }}
-    [data-testid="stMetricValue"], [data-testid="stMetricLabel"] {{ color: {LIGHT_TEXT}; }}
-    [data-testid="stMetricLabel"] {{ color: {BEIGE}; }}
-    .streamlit-expanderHeader {{ background-color: {BLACK}; color: {GOLD}; border: 1px solid {GOLD}; border-radius: 5px; }}
+    /* Main App Background */
+    .stApp {{
+        background-color: {DARK_BG};
+        color: {LIGHT_TEXT};
+    }}
+    /* Sidebar Background */
+    [data-testid="stSidebar"] > div:first-child {{
+        background-color: {BLACK};
+        border-right: 1px solid {GOLD}; /* Gold accent */
+    }}
+    /* Sidebar Text Color */
+    [data-testid="stSidebar"] .st-emotion-cache-16txtl3 {{
+         color: {BEIGE};
+    }}
+     /* Sidebar Headers */
+    [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {{
+         color: {GOLD};
+    }}
+    /* Main Content Headers */
+    .stApp h1, .stApp h2, .stApp h3 {{
+        color: {GOLD}; /* Gold headers */
+    }}
+    /* Buttons */
+    .stButton>button {{
+        background-color: {GOLD};
+        color: {BLACK};
+        border: 1px solid {GOLD};
+        border-radius: 5px;
+        padding: 0.5em 1em;
+    }}
+    .stButton>button:hover {{
+        background-color: {BLACK};
+        color: {GOLD};
+        border: 1px solid {GOLD};
+    }}
+    /* Input Boxes & Text Area */
+    .stTextInput input, .stTextArea textarea {{
+        background-color: {DARK_BG};
+        color: {LIGHT_TEXT};
+        border: 1px solid {BEIGE};
+        border-radius: 5px;
+    }}
+     /* Selectbox */
+    .stSelectbox div[data-baseweb="select"] > div {{
+         background-color: {DARK_BG};
+         color: {LIGHT_TEXT};
+         border: 1px solid {BEIGE};
+    }}
+    /* Dataframes */
+    .stDataFrame {{
+        border: 1px solid {BEIGE};
+        border-radius: 5px;
+    }}
+    /* Make dataframe headers gold */
+     .stDataFrame thead th {{
+         background-color: {BLACK};
+         color: {GOLD};
+     }}
+     /* Style dataframe rows */
+      .stDataFrame tbody tr {{
+          background-color: {DARK_BG};
+          color: {LIGHT_TEXT};
+      }}
+       .stDataFrame tbody tr:nth-child(even) {{
+           background-color: #2a2a2a; /* Slightly lighter for striping */
+       }}
+    /* Metrics */
+    [data-testid="stMetricValue"], [data-testid="stMetricLabel"] {{
+        color: {LIGHT_TEXT};
+    }}
+     [data-testid="stMetricLabel"] {{
+         color: {BEIGE}; /* Beige for labels */
+     }}
+    /* Expander */
+    .streamlit-expanderHeader {{
+        background-color: {BLACK};
+        color: {GOLD};
+        border: 1px solid {GOLD};
+        border-radius: 5px;
+    }}
 </style>
 """
 st.markdown(custom_css, unsafe_allow_html=True)
@@ -127,7 +190,9 @@ def run_analysis(brand, time_range_text, hours, competitors, industry, campaign_
         if neg_pct > 30:
             alert_msg = f"CRISIS ALERT: High negative sentiment ({neg_pct:.1f}%) detected for {brand}."
             st.error(alert_msg)
-            servicenow_integration.send_alert(alert_msg, channel='#alerts', to_email='alerts@yourcompany.com')
+            # Make sure email for alerts is configured if using this
+            alert_email = 'alerts@yourcompany.com' # Or get from config/env
+            servicenow_integration.send_alert(alert_msg, channel='#alerts', to_email=alert_email)
             servicenow_integration.create_servicenow_ticket(f"PR Crisis Alert: {brand}", alert_msg, urgency='1', impact='1')
 
     except Exception:
@@ -162,7 +227,20 @@ def display_dashboard(brand, competitors, time_range_text):
         st.write("No sentiment data to display.")
 
     all_brands = kpis.get("all_brands", [brand] + competitors)
-    sov_values = kpis.get("sov", [0] * len(all_brands))
+    # Ensure sov_values length matches all_brands_list length
+    sov_values = kpis.get("sov", [])
+    if len(sov_values) != len(all_brands):
+        # Re-create sov_values mapping if lengths mismatch (can happen if filtering removes brands)
+        brand_counts = Counter()
+        for item in st.session_state.full_data:
+             mentioned = item.get('mentioned_brands', [])
+             present_brands = set()
+             if isinstance(mentioned, list): present_brands.update(b for b in mentioned if b in all_brands)
+             elif isinstance(mentioned, str) and mentioned in all_brands: present_brands.add(mentioned)
+             for b in present_brands: brand_counts[b] += 1
+        total_sov_mentions = sum(brand_counts.values())
+        sov_values = [(brand_counts[b] / total_sov_mentions * 100) if total_sov_mentions > 0 else 0 for b in all_brands]
+
     sov_df = pd.DataFrame({'Brand': all_brands, 'Share of Voice (%)': sov_values})
     fig_sov = px.bar(sov_df, x='Brand', y='Share of Voice (%)', title="Share of Voice (SOV)", color='Brand')
     st.plotly_chart(fig_sov, use_container_width=True)
@@ -179,56 +257,43 @@ def display_dashboard(brand, competitors, time_range_text):
 
     st.markdown("**Recent Mentions (All Brands)**")
     if st.session_state.full_data:
-        display_data = [{'Sentiment': item.get('sentiment', 'N/A'), 'Source': item.get('source', 'N/A'), 'Mention': item.get('text', '')[:150] + "...", 'Link': item.get('link', '#')} for item in st.session_state.full_data[:30]]
-        st.dataframe(pd.DataFrame(display_data), column_config={"Link": st.column_config.LinkColumn("Link", display_text="Source Link")}, use_container_width=True, hide_index=True)
+        display_data = [{'Sentiment': item.get('sentiment', 'N/A'),
+                         'Source': item.get('source', 'N/A'),
+                         'Mention': item.get('text', '')[:150] + "...", # Show more text
+                         'Link': item.get('link', '#')}
+                        for item in st.session_state.full_data[:30]] # Show top 30
+        st.dataframe(pd.DataFrame(display_data),
+                     column_config={"Link": st.column_config.LinkColumn("Link", display_text="Source Link")},
+                     use_container_width=True, hide_index=True)
     else:
         st.write("No mentions to display.")
 
-    # --- Report Generation & Sending ---
+    # Report Generation & Sending
     st.subheader("Generate & Send Report")
     recipient_email = st.text_input("Enter Email to Send Reports To:",
                                     placeholder="your.email@example.com",
-                                    key="recipient_email_input") # Key helps retain value
+                                    key="recipient_email_input")
 
-    # Generate Button
     if st.button("Generate Reports for Email/Download", use_container_width=True, key="generate_reports"):
         if not st.session_state.kpis or not st.session_state.full_data:
-            st.warning("Please run analysis first to generate data for the report.")
-            st.session_state.report_generated = False # Ensure flag is false if no data
+            st.warning("Please run analysis first.")
+            st.session_state.report_generated = False
         else:
-            st.session_state.report_generated = False # Reset flag initially
+            st.session_state.report_generated = False
             pdf_generated = False
             excel_generated = False
-            ai_summary = "" # Initialize ai_summary variable
+            ai_summary = ""
 
-            # Generate PDF
             with st.spinner("Building PDF report..."):
                 try:
-                    # Generate AI summary first
-                    ai_summary = bedrock_llm.generate_llm_report_summary(
-                         st.session_state.kpis,
-                         st.session_state.top_keywords,
-                         st.session_state.full_data,
-                         brand
-                    )
-                    st.session_state.ai_summary_text = ai_summary # Store for later use
-
-                    # Generate the PDF content
-                    md, pdf_bytes = report_gen.generate_report(
-                        kpis=st.session_state.kpis,
-                        top_keywords=st.session_state.top_keywords,
-                        full_articles_data=st.session_state.full_data,
-                        brand=brand,
-                        competitors=competitors,
-                        timeframe_hours=time_range_text,
-                        include_json=False
-                    )
+                    ai_summary = bedrock_llm.generate_llm_report_summary(st.session_state.kpis, st.session_state.top_keywords, st.session_state.full_data, brand)
+                    st.session_state.ai_summary_text = ai_summary # Store for email body
+                    md, pdf_bytes = report_gen.generate_report(kpis=st.session_state.kpis, top_keywords=st.session_state.top_keywords, full_articles_data=st.session_state.full_data, brand=brand, competitors=competitors, timeframe_hours=time_range_text, include_json=False)
                     st.session_state.pdf_report_bytes = pdf_bytes
                     pdf_generated = True
                 except Exception as e:
                     st.error(f"Failed to generate PDF report: {e}\n{traceback.format_exc()}")
 
-            # Generate Excel
             with st.spinner("Building Excel mentions file..."):
                 try:
                     excel_data = [{'Date': item.get('date', 'N/A'), 'Sentiment': item.get('sentiment', 'N/A'),
@@ -244,78 +309,57 @@ def display_dashboard(brand, competitors, time_range_text):
                 except Exception as e:
                     st.error(f"Failed to generate Excel file: {e}")
 
-            # Set flag only if BOTH files generated successfully
             if pdf_generated and excel_generated:
                 st.session_state.report_generated = True
                 st.success("Reports Generated Successfully!")
-                # Show AI summary immediately
                 with st.expander("View AI Summary & Recommendations", expanded=True):
                     st.markdown(st.session_state.ai_summary_text) # Display stored summary
             else:
-                st.error("Report generation failed. Please check errors above.")
+                st.error("Report generation failed.")
 
-    # --- Conditional Display of Download & Email Buttons ---
+    # Conditional Display of Download & Email Buttons
     if st.session_state.get('report_generated', False):
-        st.markdown("---") # Separator
+        st.markdown("---")
         col_dl_pdf, col_dl_excel, col_email = st.columns(3)
 
         with col_dl_pdf:
             if st.session_state.get('pdf_report_bytes'):
-                st.download_button(
-                    label="Download PDF Summary",
-                    data=st.session_state.pdf_report_bytes,
-                    file_name=f"{brand}_FlashNarrative_Report.pdf",
-                    mime="application/pdf",
-                    use_container_width=True,
-                    key="pdf_download"
-                )
-            else: # Disable if bytes aren't there
-                 st.button("Download PDF Summary", disabled=True, use_container_width=True)
-
+                st.download_button(label="Download PDF Summary", data=st.session_state.pdf_report_bytes, file_name=f"{brand}_FlashNarrative_Report.pdf", mime="application/pdf", use_container_width=True, key="pdf_download")
+            else:
+                st.button("Download PDF Summary", disabled=True, use_container_width=True, help="PDF generation failed.")
 
         with col_dl_excel:
             if st.session_state.get('excel_report_bytes'):
-                st.download_button(
-                    label="Download Mentions (Excel)",
-                    data=st.session_state.excel_report_bytes,
-                    file_name=f"{brand}_FlashNarrative_Mentions.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True,
-                    key="excel_download"
-                )
-            else: # Disable if bytes aren't there
-                 st.button("Download Mentions (Excel)", disabled=True, use_container_width=True)
+                st.download_button(label="Download Mentions (Excel)", data=st.session_state.excel_report_bytes, file_name=f"{brand}_FlashNarrative_Mentions.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True, key="excel_download")
+            else:
+                st.button("Download Mentions (Excel)", disabled=True, use_container_width=True, help="Excel generation failed.")
 
         with col_email:
-            # Use the value directly from the input field state
             email_to_send = st.session_state.get("recipient_email_input", "")
             if not email_to_send:
                 st.button("Email Generated Reports", disabled=True, use_container_width=True, help="Enter recipient email above.")
-            # Check if bytes exist before enabling email button
+            # Disable if files are missing
             elif not st.session_state.get('pdf_report_bytes') or not st.session_state.get('excel_report_bytes'):
-                 st.button("Email Generated Reports", disabled=True, use_container_width=True, help="Report generation failed or files missing.")
+                st.button("Email Generated Reports", disabled=True, use_container_width=True, help="Report generation failed or files missing.")
             elif st.button("Email Generated Reports", use_container_width=True, key="email_reports"):
-                 with st.spinner(f"Sending reports to {email_to_send}..."):
-                     # Prepare attachments list
-                     attachments = [
-                         (f"{brand}_FlashNarrative_Report.pdf", st.session_state.pdf_report_bytes, 'application/pdf'),
-                         (f"{brand}_FlashNarrative_Mentions.xlsx", st.session_state.excel_report_bytes, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-                     ]
-                     subject = f"FlashNarrative Report for {brand} ({time_range_text})"
-                     # Use stored AI summary in body
-                     ai_summary_body = st.session_state.get("ai_summary_text", "AI Summary could not be generated.")
-                     body = f"Please find attached the FlashNarrative reports for {brand} covering {time_range_text}.\n\nAI Summary:\n{ai_summary_body}"
+                with st.spinner(f"Sending reports to {email_to_send}..."):
+                    attachments = [
+                        (f"{brand}_FlashNarrative_Report.pdf", st.session_state.pdf_report_bytes, 'application/pdf'),
+                        (f"{brand}_FlashNarrative_Mentions.xlsx", st.session_state.excel_report_bytes, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                    ]
+                    subject = f"FlashNarrative Report for {brand} ({time_range_text})"
+                    ai_summary_body = st.session_state.get("ai_summary_text", "AI Summary could not be generated.")
+                    body = f"Please find attached the FlashNarrative reports for {brand} covering {time_range_text}.\n\nAI Summary:\n{ai_summary_body}"
 
-                     # Call the function and check its return value
-                     sent = servicenow_integration.send_report_email_with_attachments(
-                         email_to_send, subject, body, attachments
-                     )
-                     # Display success or error message *based on the return value*
-                     if sent:
-                         st.success(f"Reports emailed successfully to {email_to_send}!")
-                     else:
-                         # Use st.error HERE in the dashboard script
-                         st.error("Failed to send email. Check logs and .env SMTP settings (use App Password for Gmail).")
+                    # Call the function and check its return value
+                    sent = servicenow_integration.send_report_email_with_attachments(
+                        email_to_send, subject, body, attachments
+                    )
+                    # Display success or error message *based on the return value*
+                    if sent:
+                        st.success(f"Reports emailed successfully to {email_to_send}!")
+                    else:
+                        st.error("Failed to send email. Check logs and .env SMTP settings (use App Password for Gmail).")
 
 
 def main():
@@ -334,7 +378,6 @@ def main():
     if 'full_data' not in st.session_state: st.session_state.full_data = []
     if 'kpis' not in st.session_state: st.session_state.kpis = {}
     if 'top_keywords' not in st.session_state: st.session_state.top_keywords = []
-    # Initialize report states
     if 'report_generated' not in st.session_state: st.session_state.report_generated = False
     if 'pdf_report_bytes' not in st.session_state: st.session_state.pdf_report_bytes = None
     if 'excel_report_bytes' not in st.session_state: st.session_state.excel_report_bytes = None
@@ -357,11 +400,10 @@ def main():
 
     # Run Button
     if st.button("Run Analysis", type="primary", use_container_width=True):
-        # Clear old data AND report generation state
         st.session_state.full_data = []
         st.session_state.kpis = {}
         st.session_state.top_keywords = []
-        st.session_state.report_generated = False # Reset flag
+        st.session_state.report_generated = False
         st.session_state.pdf_report_bytes = None
         st.session_state.excel_report_bytes = None
         st.session_state.ai_summary_text = ""
@@ -372,4 +414,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

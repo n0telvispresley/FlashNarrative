@@ -14,9 +14,6 @@ stop_words = set(['the', 'is', 'a', 'to', 'and', 'in', 'it', 'for', 'of', 'i', '
 def extract_keywords(all_text, top_n=10):
     tokens = nltk.word_tokenize(all_text.lower())
     
-    # --- DELETE THIS LINE from inside the function ---
-    # stop_words = set(['the', 'is', 'a', 'to', 'and', 'in', 'it', 'for', 'of', 'i', 's', 'your', 'brandx']) 
-    
     # This line now correctly uses the global 'stop_words' list
     tokens = [t for t in tokens if len(t) > 3 and t.isalpha() and t not in stop_words]
     freq_dist = FreqDist(tokens)
@@ -89,8 +86,11 @@ def compute_kpis(full_data, campaign_messages, industry=None, hours=None, brand=
     counts = Counter(tones)
     sentiment_ratio = {tone: count / total_mentions * 100 for tone, count in counts.items()}
 
+    # --- THIS IS THE FIX ---
     # MIS (Media Impact Score) - Weighted by authority
-    mis = sum(item.get('authority', 0) for item in full_data if item.get('sentiment') == 'positive')
+    # Now counts 'positive' OR 'appreciation'
+    mis = sum(item.get('authority', 0) for item in full_data if item.get('sentiment') in ['positive', 'appreciation'])
+    # --- END OF FIX ---
 
     # MPI (Message Penetration Index)
     matches = 0
@@ -98,12 +98,13 @@ def compute_kpis(full_data, campaign_messages, industry=None, hours=None, brand=
         for item in full_data:
             text_lower = item.get('text', '').lower()
             matches += sum(1 for msg in campaign_messages if msg.lower() in text_lower)
-        mpi = matches / total_mentions if total_mentions > 0 else 0
+        # Return as a percentage
+        mpi = (matches / total_mentions) * 100 if total_mentions > 0 else 0
     else:
         mpi = 0
 
     # Engagement rate (Social only)
-    social_sources = ['fb', 'ig', 'threads', 'twitter', 'x']
+    social_sources = ['fb', 'ig', 'threads', 'twitter', 'x', 'reddit.com'] # Added reddit
     social_mentions = [item for item in full_data if any(s in item.get('source', '').lower() for s in social_sources)]
     total_engagement = sum((item.get('likes', 0) + item.get('comments', 0)) for item in social_mentions)
     engagement_rate = total_engagement / len(social_mentions) if social_mentions else 0

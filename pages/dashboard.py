@@ -1,138 +1,158 @@
-# pages/dashboard.py
+# dashboard.py
 import streamlit as st
-import sys
-import os
-import traceback
 import pandas as pd
-import plotly.express as px
-import nltk
-import io
-from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen import canvas
-from reportlab.lib.utils import ImageReader
+import matplotlib.pyplot as plt
+import traceback
 
-# Add flashnarrative folder to path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-import analysis
-import report_gen
+from flashnarrative import analysis, report_gen
 
-nltk.download('punkt', quiet=True)
+st.set_page_config(page_title="Flash Narrative Dashboard", layout="wide")
 
-# --- Session state setup ---
-if 'logged_in' not in st.session_state:
-    st.session_state['logged_in'] = False
-
-if not st.session_state['logged_in']:
-    st.error("Please log in first.")
-    st.stop()
-
-for key in ['data', 'kpis', 'top_keywords', 'md', 'pdf_bytes']:
-    if key not in st.session_state:
-        st.session_state[key] = None if key != 'top_keywords' else []
-
-# --- Dashboard UI ---
 st.title("Flash Narrative Dashboard")
 
-brand = st.text_input("Brand Name", value="MyBrand")
-competitors_input = st.text_area("Competitor Brands (comma-separated)", value="Competitor1,Competitor2")
-competitors = [c.strip() for c in competitors_input.split(',') if c.strip()]
+# ----------------- User Inputs -----------------
+st.sidebar.header("Inputs")
+brand = st.sidebar.text_input("Your Brand Name", "BrandX")
+competitors_input = st.sidebar.text_area("Competitor Brands (comma-separated)", "")
+competitors = [c.strip() for c in competitors_input.split(",") if c.strip()]
 
-campaign_input = st.text_area("Campaign Messages (comma-separated)", value="Message1,Message2")
-campaign_messages = [m.strip() for m in campaign_input.split(',') if m.strip()]
+campaign_input = st.sidebar.text_area("Campaign Messages (comma-separated)", "")
+campaign_messages = [c.strip() for c in campaign_input.split(",") if c.strip()]
 
-time_frame = st.slider("Time Frame (hours)", 1, 48, 24)
-industry = st.selectbox("Industry", ["Tech", "Finance", "Healthcare", "Retail"])
+hours = st.sidebar.number_input("Lookback Hours", min_value=1, max_value=168, value=24, step=1)
 
-# --- Analyze Button ---
-if st.button("Analyze"):
+uploaded_file = st.sidebar.file_uploader("Upload brand mentions CSV", type=["csv"])
+
+# ----------------- Data Loading -----------------
+full_data = []
+if uploaded_file:
     try:
-        # Fetch data
-        from scraper import fetch_all
-        data = fetch_all(brand, time_frame, competitors)
-        st.session_state['data'] = data
-
-        mentions = [item.get('text', '') for item in data.get('full_data', [])]
-        sentiment_counts, tones = analysis.analyze_sentiment(mentions)
-        top_keywords = analysis.extract_keywords(' '.join(mentions))
-        st.session_state['top_keywords'] = top_keywords
-
-        kpis = analysis.compute_kpis(
-            full_data=data.get('full_data', []),
-            tones=tones,
-            campaign_messages=campaign_messages,
-            industry=industry,
-            hours=time_frame,
-            brand=brand
-        )
-        st.session_state['kpis'] = kpis
-        st.success("Analysis complete!")
-
+        df = pd.read_csv(uploaded_file)
+        required_columns = ['text', 'date', 'source', 'mentioned_brands', 'authority', 'likes', 'comments', 'reach']
+        for col in required_columns:
+            if col not in df.columns:
+                st.error(f"CSV missing required column: {col}")
+        full_data = df.to_dict(orient="records")
     except Exception as e:
-        st.error("Analysis error:")
-        st.error(traceback.format_exc())
+        st.error(f"Failed to load CSV: {e}")
 
-# --- Display KPIs & Charts ---
-if st.session_state['kpis']:
-    kpis = st.session_state['kpis']
-    st.subheader("Key Metrics")
-    col1, col2 = st.columns(2)
+# ----------------- Compute Analysis -----------------
+kpis = {}
+tones = []
+try:
+    if full_data:
+        # Analyze sentiment
+        mentions_text = [item['text'] for item in full_data]
+        counts, tones = analysis.analyze_sentiment(mentions_text)
 
-    with col1:
-        st.metric("MIS", kpis['mis'])
-        st.metric("MPI", round(kpis['mpi'], 2))
-        st.metric("Engagement Rate", round(kpis['engagement_rate'], 2))
-        st.metric("Reach/Impressions", kpis['reach'])
-        st.metric("Brand Sentiment (%)", round(kpis['small_brand_sentiment'], 2))
+        # Compute KPIs
+        kpis = analysis.compute_kpis(full_data, tones, campaign_messages, industry=None, hours=hours, brand=brand)
 
-        # Sentiment Pie Chart
-        sentiment_df = pd.DataFrame(list(kpis['sentiment_ratio'].items()), columns=['Tone', 'Percentage'])
-        fig_pie = px.pie(sentiment_df, names='Tone', values='Percentage', title='Sentiment Ratio')
-        st.plotly_chart(fig_pie)
+        # Extract top keywords
+        all_text = " ".join(mentions_text)
+        top_keywords = analysis.extract_keywords(all_text)
+    else:
+        top_keywords = []
+except Exception:
+    st.error("Analysis error:\n" + traceback.format_exc())
+    kpis = {}
+    top_keywords = []
 
-    with col2:
-        # Share of Voice (SOV)
-        all_brands = [brand] + competitors
-        sov_values = kpis.get('sov', [0]*len(all_brands))
-        # Ensure length match
-        if len(sov_values) < len(all_brands):
-            sov_values += [0]*(len(all_brands)-len(sov_values))
-        sov_df = pd.DataFrame({'Brand': all_brands, 'SOV': sov_values})
-        st.subheader("Share of Voice")
-        st.table(sov_df)
+# ----------------- KPIs Display -----------------
+if kpis:
+    st.subheader("Key Performance Indicators (KPIs)")
+    kpi_cols = st.columns(4)
+    kpi_cols[0].metric("MIS", kpis.get("mis", 0))
+    kpi_cols[1].metric("MPI", round(kpis.get("mpi", 0), 2))
+    kpi_cols[2].metric("Engagement Rate", round(kpis.get("engagement_rate", 0), 2))
+    kpi_cols[3].metric("Reach", kpis.get("reach", 0))
 
-        # Top Keywords
-        st.subheader("Top Keywords / Themes")
-        if top_keywords:
-            kw_df = pd.DataFrame(top_keywords, columns=['Keyword', 'Frequency'])
-            st.table(kw_df)
+# ----------------- SOV Table -----------------
+all_brands = [brand] + competitors
+sov_values = kpis.get("sov", [0]*len(all_brands))
+if len(sov_values) < len(all_brands):
+    sov_values += [0]*(len(all_brands)-len(sov_values))
 
-# --- PDF Report ---
-if st.session_state['kpis'] and st.button("Generate PDF Report"):
-    try:
-        md, pdf_bytes = report_gen.generate_report(
-            kpis=kpis,
-            top_keywords=st.session_state['top_keywords'],
-            brand=brand,
-            competitors=competitors,
-            timeframe_hours=time_frame
-        )
-        st.session_state['md'] = md
-        st.session_state['pdf_bytes'] = pdf_bytes
-        st.download_button(
-            label="Download PDF Report",
-            data=st.session_state['pdf_bytes'],
-            file_name=f"{brand}_report.pdf",
-            mime="application/pdf"
-        )
-        st.markdown(md)
-    except Exception as e:
-        st.error(f"PDF generation failed: {e}")
+sov_df = pd.DataFrame({'Brand': all_brands, 'SOV (%)': sov_values})
+st.subheader("Share of Voice (SOV)")
+st.dataframe(sov_df)
 
-# --- Refresh Button ---
-if st.button("Refresh"):
-    st.session_state['data'] = None
-    st.session_state['kpis'] = None
-    st.session_state['top_keywords'] = []
-    st.session_state['md'] = ""
-    st.session_state['pdf_bytes'] = b""
-    st.experimental_rerun()
+# ----------------- Sentiment Pie Chart -----------------
+sentiment_ratio = kpis.get("sentiment_ratio", {})
+if sentiment_ratio:
+    labels = list(sentiment_ratio.keys())
+    sizes = list(sentiment_ratio.values())
+    fig, ax = plt.subplots()
+    ax.pie(sizes, labels=labels, autopct='%1.0f%%', startangle=90)
+    ax.axis('equal')
+    st.subheader("Sentiment Distribution")
+    st.pyplot(fig)
+
+# ----------------- Top Keywords -----------------
+if top_keywords:
+    st.subheader("Top Keywords / Themes")
+    for w, f in top_keywords:
+        st.write(f"- {w}: {f}")
+
+# ----------------- Recommendations -----------------
+if kpis:
+    st.subheader("Recommendations")
+    neg_pct = sentiment_ratio.get("negative", 0)
+    pos_pct = sentiment_ratio.get("positive", 0)
+    recs = []
+    if neg_pct > 50:
+        recs.append("High negative sentiment — escalate to PR and prioritize sentiment remediation plans.")
+    elif neg_pct > 30:
+        recs.append("Moderate negative sentiment — investigate top negative sources and respond where necessary.")
+    elif pos_pct > 60:
+        recs.append("Strong positive sentiment — capitalize on momentum with promotional pushes.")
+    else:
+        recs.append("Mixed sentiment — monitor trending keywords and refine messaging to increase MPI.")
+
+    if top_keywords:
+        top_kw = top_keywords[0][0]
+        recs.append(f"Consider content or campaign ideas around **{top_kw}**, which is trending in recent coverage.")
+
+    for r in recs:
+        st.write(f"- {r}")
+
+# ----------------- Hyperlinks Section -----------------
+if full_data:
+    st.subheader("Top Mentions Links")
+    link_data = []
+    for item in full_data:
+        source = item.get("source", "").lower()
+        text = item.get("text", "")
+        link = item.get("link", "#")  # Optional column in CSV
+        if link != "#":
+            link_data.append((source, text, link))
+
+    if link_data:
+        for src, txt, lnk in link_data:
+            st.markdown(f"- [{src.upper()}]({lnk}): {txt[:100]}{'...' if len(txt)>100 else ''}")
+    else:
+        st.write("No links available in uploaded data.")
+
+# ----------------- Report Generation -----------------
+st.subheader("Generate PDF Report")
+if st.button("Generate Report"):
+    if full_data:
+        try:
+            md, pdf_bytes, _ = report_gen.generate_report(
+                kpis=kpis,
+                top_keywords=top_keywords,
+                brand=brand,
+                competitors=competitors,
+                timeframe_hours=hours,
+                include_json=True
+            )
+            st.download_button(
+                label="Download PDF",
+                data=pdf_bytes,
+                file_name=f"flash_narrative_report_{brand}.pdf",
+                mime="application/pdf"
+            )
+        except Exception:
+            st.error("Report generation failed:\n" + traceback.format_exc())
+    else:
+        st.warning("Upload brand mentions CSV to generate report.")

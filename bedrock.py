@@ -30,7 +30,7 @@ def get_bedrock_client():
         return None
 
 # Use the most powerful model
-MODEL_ID = "anthropic.claude-3-opus-20240229-v1:0"
+MODEL_ID = "anthropic.claude-3-haiku-20240307-v1:0"
 
 def get_llm_sentiment(text_chunk):
     """

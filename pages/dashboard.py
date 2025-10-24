@@ -13,7 +13,7 @@ from email.mime.text import MIMEText
 from slack_sdk import WebClient
 
 # Clean sys.path to remove duplicates and add project root
-sys.path = list(dict.fromkeys(sys.path))
+sys.path = list(dict.fromkeys(sys.path))  # Remove duplicates
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 # Debug: Print sys.path and working directory
@@ -40,7 +40,7 @@ def list_directory(path, indent=""):
 structure = list_directory(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 st.write("\n".join(structure))
 
-# Module import status
+# Module imports
 module_status = {}
 try:
     from scraper import fetch_all
@@ -52,7 +52,7 @@ except Exception as e:
 
 try:
     from analysis import analyze_sentiment, compute_kpis, extract_keywords
-    st.write("analysis.py imported successfully")
+    st.write("analysis.py: analyze_sentiment, compute_kpis, extract_keywords imported successfully")
     module_status["analysis"] = True
 except Exception as e:
     st.error(f"Error importing analysis.py: {e}")
@@ -60,7 +60,7 @@ except Exception as e:
 
 try:
     from report_gen import generate_report
-    st.write("report_gen.py imported successfully")
+    st.write("report_gen.py: generate_report imported successfully")
     module_status["report_gen"] = True
 except Exception as e:
     st.error(f"Error importing report_gen.py: {e}")
@@ -68,7 +68,7 @@ except Exception as e:
 
 try:
     from servicenow_integration import create_servicenow_ticket
-    st.write("servicenow_integration.py imported successfully")
+    st.write("servicenow_integration.py: create_servicenow_ticket imported successfully")
     module_status["servicenow_integration"] = True
 except Exception as e:
     st.error(f"Error importing servicenow_integration.py: {e}")
@@ -86,20 +86,22 @@ if not st.session_state.get('logged_in', False):
     st.error("Please log in first.")
     st.switch_page("pages/landing.py")
 
-# Session state
-if 'data' not in st.session_state: st.session_state['data'] = None
-if 'kpis' not in st.session_state: st.session_state['kpis'] = None
-if 'top_keywords' not in st.session_state: st.session_state['top_keywords'] = []
-if 'md' not in st.session_state: st.session_state['md'] = ""
-if 'pdf_bytes' not in st.session_state: st.session_state['pdf_bytes'] = b""
+# Initialize session state
+for key in ['data', 'kpis', 'top_keywords', 'md', 'pdf_bytes']:
+    if key not in st.session_state:
+        st.session_state[key] = None if key != 'top_keywords' else []
 
 # Dashboard UI
 st.title("Flash Narrative Dashboard")
+
+# Inputs
 brand = st.text_input("Brand Name", value="MyBrand")
 time_frame = st.slider("Time Frame (hours)", 1, 48, 24)
 industry = st.selectbox("Industry", ["Tech", "Finance", "Healthcare", "Retail"])
-competitors = st.multiselect("Competitors (up to 3)", ["Competitor1", "Competitor2", "Competitor3"], max_selections=3)
-campaign_messages = st.text_area("Campaign Messages for MPI", value="Message1,Message2")
+competitors_input = st.text_area("Competitor Brands (comma-separated)", value="Competitor1,Competitor2")
+competitors = [c.strip() for c in competitors_input.split(",") if c.strip()]
+campaign_messages_input = st.text_area("Campaign Messages (comma-separated)", value="Message1,Message2")
+campaign_messages = [m.strip() for m in campaign_messages_input.split(",") if m.strip()]
 
 # Analyze button
 if st.button("Analyze"):
@@ -107,18 +109,23 @@ if st.button("Analyze"):
         st.error("Cannot analyze: scraper.py or analysis.py failed to import.")
     else:
         try:
+            # Fetch data
             data = fetch_all(brand, time_frame, competitors)
             st.session_state['data'] = data
-            
-            mentions = [item['text'] for item in data['full_data']]
+
+            # Analyze sentiment
+            mentions = [item.get('text', '') for item in data.get('full_data', [])]
             sentiments, tones = analyze_sentiment(mentions)
-            st.session_state['top_keywords'] = extract_keywords(' '.join(mentions))
-            
+
+            # Extract keywords
+            all_text = ' '.join(mentions)
+            st.session_state['top_keywords'] = extract_keywords(all_text)
+
             # Compute KPIs
             kpis = compute_kpis(
-                data['full_data'],
+                data.get('full_data', []),
                 tones,
-                [msg.strip() for msg in campaign_messages.split(',')],
+                campaign_messages,
                 industry,
                 hours=time_frame,
                 brand=brand
@@ -126,14 +133,15 @@ if st.button("Analyze"):
             st.session_state['kpis'] = kpis
 
             # Alerts
-            if module_status.get("servicenow_integration", False):
-                neg_ratio = kpis['sentiment_ratio'].get('negative', 0)
-                if neg_ratio > 50 or any('nytimes.com' in m['source'] for m in data['full_data'] if m.get('sentiment') == 'negative'):
-                    try:
-                        create_servicenow_ticket("PR Crisis Alert", "Negative spike or high-priority mention detected.")
-                        st.success("Alert sent (check console for mock).")
-                    except Exception as e:
-                        st.error(f"Alert failed: {e}")
+            if module_status.get("servicenow_integration", False) and (
+                kpis['sentiment_ratio'].get('negative', 0) > 50 or
+                any('nytimes.com' in m.get('source', '') for m in data.get('full_data', []) if m.get('sentiment') == 'negative')
+            ):
+                try:
+                    create_servicenow_ticket("PR Crisis Alert", "Negative spike or high-priority mention detected.")
+                    st.success("Alert sent (check console for mock).")
+                except Exception as e:
+                    st.error(f"Alert failed: {e}")
 
             st.success("Analysis complete!")
         except Exception as e:
@@ -142,17 +150,20 @@ if st.button("Analyze"):
 # Display KPIs
 if st.session_state['kpis']:
     kpis = st.session_state['kpis']
+    all_brands = kpis.get('all_brands', [brand] + competitors)
+    sov_values = kpis.get('sov', [0]*len(all_brands))
     col1, col2 = st.columns(2)
 
     with col1:
+        # Sentiment Pie
         sentiment_df = pd.DataFrame(list(kpis['sentiment_ratio'].items()), columns=['Tone', 'Percentage'])
-        st.plotly_chart(px.pie(sentiment_df, values='Percentage', names='Tone', title='Sentiment Ratio'))
+        fig_pie = px.pie(sentiment_df, values='Percentage', names='Tone', title='Sentiment Ratio')
+        st.plotly_chart(fig_pie)
 
-        # Use brand list stored in KPIs
-        brands = kpis.get('all_brands', [brand] + competitors)
-        sov_values = kpis.get('sov', [0]*len(brands))
-        sov_df = pd.DataFrame({'Brand': brands, 'SOV': sov_values})
-        st.plotly_chart(px.bar(sov_df, x='Brand', y='SOV', title='Share of Voice'))
+        # SOV Bar
+        sov_df = pd.DataFrame({'Brand': all_brands, 'SOV': sov_values})
+        fig_bar = px.bar(sov_df, x='Brand', y='SOV', title='Share of Voice')
+        st.plotly_chart(fig_bar)
 
     with col2:
         st.subheader("Key Metrics")
@@ -166,35 +177,27 @@ if st.session_state['kpis']:
         if st.session_state['top_keywords']:
             st.table(pd.DataFrame(st.session_state['top_keywords'], columns=['Keyword', 'Frequency']))
 
-# PDF Report
-if st.button("Generate PDF Report"):
-    if not module_status.get("report_gen", False):
-        st.error("Cannot generate report: report_gen.py failed to import.")
-    else:
-        try:
-            md, pdf_bytes = generate_report(
-                kpis,
-                st.session_state['top_keywords'],
-                brand,
-                competitors
-            )
-            st.session_state['md'] = md
-            st.session_state['pdf_bytes'] = pdf_bytes
-            st.download_button(
-                label="Download Report",
-                data=st.session_state['pdf_bytes'],
-                file_name=f"{brand}_report.pdf",
-                mime="application/pdf"
-            )
-            st.markdown(st.session_state['md'])
-        except Exception as e:
-            st.error(f"PDF generation failed: {e}")
+    # PDF Report
+    if st.button("Generate PDF Report"):
+        if not module_status.get("report_gen", False):
+            st.error("Cannot generate report: report_gen.py failed to import.")
+        else:
+            try:
+                md, pdf_bytes = generate_report(kpis, st.session_state['top_keywords'], brand, competitors)
+                st.session_state['md'] = md
+                st.session_state['pdf_bytes'] = pdf_bytes
+                st.download_button(
+                    label="Download Report",
+                    data=st.session_state['pdf_bytes'],
+                    file_name=f"{brand}_report.pdf",
+                    mime="application/pdf"
+                )
+                st.markdown(st.session_state['md'])
+            except Exception as e:
+                st.error(f"PDF generation failed: {e}")
 
 # Refresh button
 if st.button("Refresh"):
-    st.session_state['data'] = None
-    st.session_state['kpis'] = None
-    st.session_state['top_keywords'] = []
-    st.session_state['md'] = ""
-    st.session_state['pdf_bytes'] = b""
-    st.experimental_rerun()
+    for key in ['data', 'kpis', 'top_keywords', 'md', 'pdf_bytes']:
+        st.session_state[key] = None if key != 'top_keywords' else []
+    st.rerun()

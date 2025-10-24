@@ -188,42 +188,52 @@ def _simple_domain_from_url(url):
 # scraper.py
 
 # Dummy fallback generator (UPDATED)
-def generate_dummy_mentions(brand, competitors, time_frame, source_type):
-    mentions = []
-    all_brands = [brand] + competitors
+# scraper.py
 
-    for _ in range(random.randint(5, 15)):
+# ... (inside the generate_dummy_mentions function) ...
+def generate_dummy_mentions(brand, competitors, time_frame, source_type):
+    # ... (inside the for loop) ...
         # Pick a random brand and user
         mentioned = random.choice(all_brands)
         user = f"{random.choice(DUMMY_FIRST_NAMES)} {random.choice(DUMMY_LAST_INITIALS)}"
-
+        
         # Pick a random sentiment and create the text
         sentiment_type = random.choice(list(DUMMY_TEMPLATES.keys()))
         template = random.choice(DUMMY_TEMPLATES[sentiment_type])
-        text = f"@{user}: {template.format(brand=mentioned)}"
+        
+        # --- CHANGE 1: Remove @user from the text ---
+        text = f"{template.format(brand=mentioned)}"
 
-        source = f"dummy.{source_type}.com"
-        # Ensure the dummy date is in ISO format like the real scrapers
+        # --- CHANGE 2: Define source and link as requested ---
+        social_links = {
+            'fb': 'https://www.facebook.com',
+            'ig': 'https://www.instagram.com',
+            'threads': 'https://www.threads.net'
+        }
+        # The source is now the user's name + platform
+        source = f"{user} ({source_type})"
+        # The link is now the base URL for the platform
+        link = social_links.get(source_type, 'https://socialmedia.com')
+        # --- END CHANGES ---
+
         date_dt = datetime.now(timezone.utc) - timedelta(hours=random.randint(1, time_frame))
         date = date_dt.isoformat()
-
+        
         likes = random.randint(10, 1000) if source_type != 'news' else 0
         comments = random.randint(1, 100) if source_type != 'news' else 0
         authority = random.randint(1, 10)
         reach = random.randint(1000, 100000)
-
+        
         mentions.append({
             'text': text,
-            'source': source,
+            'source': source,      # UPDATED
             'date': date,
-            'link': '',
+            'link': link,          # UPDATED
             'mentioned_brands': [mentioned],
             'authority': authority,
             'reach': reach,
             'likes': likes,
             'comments': comments
-            # Note: We don't add 'sentiment' here. 
-            # The AI (Bedrock) is responsible for analyzing this text.
         })
     return mentions
 

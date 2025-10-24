@@ -134,10 +134,10 @@ if st.button("Analyze"):
             st.session_state['data'] = data
             
             # Analyze sentiment
-            mentions = [item['text'] for item in data['full_data']]  # Adjust based on scraper.py output
+            mentions = [item['text'] for item in data['full_data']]
             sentiments, tones = analyze_sentiment(mentions)
             
-            # Extract keywords using analysis.py
+            # Extract keywords
             all_text = ' '.join(mentions)
             st.session_state['top_keywords'] = extract_keywords(all_text)
             
@@ -147,7 +147,7 @@ if st.button("Analyze"):
                 tones, 
                 [msg.strip() for msg in campaign_messages.split(',')], 
                 industry,
-                hours=time_frame,  # strict hour filtering
+                hours=time_frame,
                 brand=brand
             )
             st.session_state['kpis'] = kpis
@@ -190,8 +190,8 @@ if st.session_state['kpis']:
         if st.session_state['top_keywords']:
             st.table(pd.DataFrame(st.session_state['top_keywords'], columns=['Keyword', 'Frequency']))
     
-    # PDF Report
-   if st.button("Generate PDF Report"):
+# PDF Report
+if st.button("Generate PDF Report"):
     if not module_status.get("report_gen", False):
         st.error("Cannot generate report: report_gen.py failed to import.")
     else:
@@ -214,7 +214,6 @@ if st.session_state['kpis']:
         except Exception as e:
             st.error(f"PDF generation failed: {e}")
 
-
 # Refresh button
 if st.button("Refresh"):
     st.session_state['data'] = None
@@ -222,7 +221,7 @@ if st.button("Refresh"):
     st.session_state['top_keywords'] = []
     st.session_state['md'] = ""
     st.session_state['pdf_bytes'] = b""
-    st.rerun()
+    st.experimental_rerun()
 
 # Comments:
 # - Fixed NameError by storing top_keywords in st.session_state.
@@ -233,4 +232,3 @@ if st.button("Refresh"):
 # - Ensured scraper.py output is accessed correctly (assumes 'full_data' key).
 # - Maintained debug output and directory listing.
 # - Use with updated requirements.txt and fixed servicenow_integration.py.
-

@@ -90,7 +90,7 @@ if st.button("Run Analysis", type="primary", use_container_width=True):
                 industry=industry
             )
 
-        if not scraped_data['full_data']:
+if not scraped_data['full_data']:
             st.warning("No mentions found. Try a broader timeframe or different keywords.")
             st.stop()
 

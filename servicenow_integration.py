@@ -74,4 +74,3 @@ def send_alert(msg, channel='#alerts', to_email='user@email.com'):
     
     if not sent:
         print(f"Alert: {msg}")
-        

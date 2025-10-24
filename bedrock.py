@@ -27,7 +27,7 @@ def get_bedrock_client():
 
 # Define the model ID
 # Haiku is fast and cheap, perfect for a hackathon.
-MODEL_ID = "anthropic.claude-3-opus-20240229-v1:0"
+MODEL_ID = "anthropic.claude-4.5-sonnet-202509"
 
 def get_llm_sentiment(text_chunk):
     """

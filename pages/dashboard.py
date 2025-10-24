@@ -1,28 +1,3 @@
-Okay, boss. Here's the updated `pages/dashboard.py` file with the email functionality integrated.
-
-**Key Changes:**
-
-1.  **Email Input:** Added `st.text_input` for the recipient's email address under the "Generate Report" subheader.
-2.  **State Management:** Added session state variables (`pdf_report_bytes`, `excel_report_bytes`, `report_generated`) to store the generated files and track if generation was successful.
-3.  **Generate Button:** Renamed the PDF button to "Generate Reports for Email/Download". Clicking this now:
-      * Generates *both* the PDF and Excel bytes.
-      * Stores them in `st.session_state`.
-      * Sets `st.session_state.report_generated = True`.
-4.  **Conditional Buttons:**
-      * The individual **Download** buttons (PDF and Excel) now appear *only after* the "Generate Reports" button is clicked successfully (`st.session_state.report_generated is True`).
-      * A new **"Email Generated Reports"** button also appears *only after* generation.
-5.  **Email Logic:** Clicking the "Email Generated Reports" button:
-      * Checks if an email address was entered.
-      * Bundles the stored PDF and Excel bytes into the `attachments` list.
-      * Calls `servicenow_integration.send_report_email_with_attachments`.
-      * Shows success or error messages.
-6.  **Reset State:** The "Run Analysis" button now resets the report generation state variables.
-
------
-
-### `pages/dashboard.py` (Updated with Email Sending)
-
-```python
 # pages/dashboard.py
 import streamlit as st
 import pandas as pd
@@ -87,15 +62,19 @@ def run_analysis(brand, time_range_text, hours, competitors, industry, campaign_
     """
     This function runs scraping, AI sentiment (with keyword fallback), and KPIs.
     """
-    # ... (Error handling and scraping logic remains the same) ...
     try:
         # 1. Scrape Data
         with st.spinner(f"Scraping the web for '{brand}' ({time_range_text})..."):
-             scraped_data = scraper.fetch_all(...) # Pass args
+            scraped_data = scraper.fetch_all(
+                brand=brand,
+                time_frame=hours,
+                competitors=competitors,
+                industry=industry
+            )
 
         if not scraped_data['full_data']:
-             st.warning("No mentions found...")
-             st.stop()
+            st.warning("No mentions found. Try a broader timeframe or different keywords.")
+            st.stop()
 
         # 2. Sentiment Analysis with Fallback
         st.write("🧠 Performing Sentiment Analysis...")
@@ -104,256 +83,227 @@ def run_analysis(brand, time_range_text, hours, competitors, industry, campaign_
         llm_failed_count = 0
 
         for i, item in enumerate(temp_data):
-             llm_sentiment = bedrock_llm.get_llm_sentiment(item.get('text', ''))
-             if llm_sentiment is not None:
-                 item['sentiment'] = llm_sentiment
-             else:
-                 item['sentiment'] = analysis.analyze_sentiment_keywords(item.get('text', ''))
-                 llm_failed_count += 1
-             # Update progress bar logic remains the same
-             progress_percent = ((i + 1) / len(temp_data))
-             progress_text = f"Analyzing sentiment ({progress_percent * 100:.0f}%)..."
-             if llm_failed_count > 0:
-                 progress_text += f" (LLM errors: {llm_failed_count})"
-             progress_bar.progress(progress_percent, text=progress_text)
+            llm_sentiment = bedrock_llm.get_llm_sentiment(item.get('text', ''))
+            if llm_sentiment is not None:
+                item['sentiment'] = llm_sentiment
+            else:
+                item['sentiment'] = analysis.analyze_sentiment_keywords(item.get('text', ''))
+                llm_failed_count += 1
+            progress_percent = ((i + 1) / len(temp_data))
+            progress_text = f"Analyzing sentiment ({progress_percent * 100:.0f}%)..."
+            if llm_failed_count > 0:
+                progress_text += f" (LLM errors: {llm_failed_count})"
+            progress_bar.progress(progress_percent, text=progress_text)
 
         progress_bar.empty()
         st.session_state.full_data = temp_data
 
         if llm_failed_count > 0:
-             st.warning(f"⚠️ Could not connect to the AI...") # Warning message
+            st.warning(f"⚠️ Could not connect to the AI for {llm_failed_count}/{len(temp_data)} items. Used basic keyword analysis as a fallback.")
 
-        # 3. Compute KPIs (remains the same)
+        # 3. Compute KPIs
         with st.spinner("Calculating KPIs..."):
-             st.session_state.kpis = analysis.compute_kpis(...) # Pass args
+            st.session_state.kpis = analysis.compute_kpis(
+                full_data=st.session_state.full_data,
+                campaign_messages=campaign_messages,
+                industry=industry,
+                hours=hours,
+                brand=brand
+            )
 
-        # 4. Extract Keywords/Phrases (remains the same)
-        all_text = " ".join(...)
-        # Stop words logic...
+        # 4. Extract Keywords/Phrases
+        all_text = " ".join([item["text"] for item in st.session_state.full_data])
+        if hasattr(analysis, 'stop_words') and isinstance(analysis.stop_words, set):
+            analysis.stop_words.add(brand.lower())
+            for c in competitors:
+                analysis.stop_words.add(c.lower())
         st.session_state.top_keywords = analysis.extract_keywords(all_text, top_n=10)
 
         st.success("Analysis complete!")
 
-        # 5. Check for Alerts (remains the same)
-        # Alert logic...
+        # 5. Check for Alerts
+        sentiment_ratio = st.session_state.kpis.get('sentiment_ratio', {})
+        neg_pct = sentiment_ratio.get('negative', 0) + sentiment_ratio.get('anger', 0)
+        if neg_pct > 30:
+            alert_msg = f"CRISIS ALERT: High negative sentiment ({neg_pct:.1f}%) detected for {brand}."
+            st.error(alert_msg)
+            servicenow_integration.send_alert(alert_msg, channel='#alerts', to_email='alerts@yourcompany.com')
+            servicenow_integration.create_servicenow_ticket(f"PR Crisis Alert: {brand}", alert_msg, urgency='1', impact='1')
 
     except Exception:
         st.error("An error occurred during analysis:\n" + traceback.format_exc())
 
 def display_dashboard(brand, competitors, time_range_text):
     """
-    This function displays KPIs, charts, tables, and report generation/sending options.
+    Displays KPIs, charts, tables, and report generation/sending options.
     """
     if not st.session_state.kpis:
         st.info("Click 'Run Analysis' to load your brand data.")
         return
 
-    # --- Display KPIs (remains the same) ---
+    # Display KPIs
     st.subheader("Key Performance Indicators")
-    # ... (KPI display logic) ...
+    kpis = st.session_state.kpis
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Media Impact (MIS)", f"{kpis.get('mis', 0):.0f}")
+    col2.metric("Message Penetration (MPI)", f"{kpis.get('mpi', 0):.1f}%")
+    col3.metric("Avg. Social Engagement", f"{kpis.get('engagement_rate', 0):.1f}")
+    col4.metric("Total Reach", f"{kpis.get('reach', 0):,}")
 
-    # --- Charts (Vertical Layout - remains the same) ---
+    # Charts (Vertical Layout)
     st.subheader("Visual Analysis")
-    # ... (Sentiment Doughnut logic) ...
-    # ... (SOV Bar Chart logic) ...
+    sentiment_ratio = kpis.get("sentiment_ratio", {})
+    if sentiment_ratio:
+        pie_data = pd.DataFrame({'Sentiment': list(sentiment_ratio.keys()), 'Percent': list(sentiment_ratio.values())})
+        color_map = {'positive': 'green', 'appreciation': 'blue', 'neutral': 'grey', 'mixed': 'orange', 'negative': 'red', 'anger': 'darkred'}
+        fig = px.pie(pie_data, names='Sentiment', values='Percent', title="AI Sentiment Distribution", color='Sentiment', color_discrete_map=color_map, hole=0.4)
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.write("No sentiment data to display.")
 
-    # --- Data Tables (Vertical Layout - remains the same) ---
+    all_brands = kpis.get("all_brands", [brand] + competitors)
+    sov_values = kpis.get("sov", [0] * len(all_brands))
+    sov_df = pd.DataFrame({'Brand': all_brands, 'Share of Voice (%)': sov_values})
+    fig_sov = px.bar(sov_df, x='Brand', y='Share of Voice (%)', title="Share of Voice (SOV)", color='Brand')
+    st.plotly_chart(fig_sov, use_container_width=True)
+
+    # Data Tables (Vertical Layout)
     st.subheader("Detailed Mentions")
-    # ... (Keywords/Phrases table logic) ...
-    # ... (Recent Mentions table logic) ...
+    st.markdown("**Top Keywords & Phrases**")
+    top_keywords = st.session_state.top_keywords
+    if top_keywords:
+        kw_df = pd.DataFrame(top_keywords, columns=['Keyword/Phrase', 'Frequency'])
+        st.dataframe(kw_df, use_container_width=True)
+    else:
+        st.write("- No keywords or phrases identified.")
 
-    # --- Report Generation & Sending ---
+    st.markdown("**Recent Mentions (All Brands)**")
+    if st.session_state.full_data:
+        display_data = [{'Sentiment': item.get('sentiment', 'N/A'), 'Source': item.get('source', 'N/A'), 'Mention': item.get('text', '')[:150] + "...", 'Link': item.get('link', '#')} for item in st.session_state.full_data[:30]]
+        st.dataframe(pd.DataFrame(display_data), column_config={"Link": st.column_config.LinkColumn("Link", display_text="Source Link")}, use_container_width=True, hide_index=True)
+    else:
+        st.write("No mentions to display.")
+
+    # Report Generation & Sending
     st.subheader("Generate & Send Report")
+    recipient_email = st.text_input("Enter Email to Send Reports To:", placeholder="your.email@example.com", key="recipient_email_input")
 
-    # --- Email Input ---
-    recipient_email = st.text_input("Enter Email to Send Reports To:",
-                                    placeholder="your.email@example.com",
-                                    key="recipient_email_input")
-
-    # --- Generate Button ---
     if st.button("Generate Reports for Email/Download", use_container_width=True, key="generate_reports"):
         if not st.session_state.kpis or not st.session_state.full_data:
-             st.warning("Please run analysis first to generate data for the report.")
-             st.session_state.report_generated = False # Ensure flag is false
+            st.warning("Please run analysis first.")
+            st.session_state.report_generated = False
         else:
-             st.session_state.report_generated = False # Reset flag initially
-             pdf_generated = False
-             excel_generated = False
+            st.session_state.report_generated = False
+            pdf_generated = False
+            excel_generated = False
+            ai_summary = "" # Initialize ai_summary
 
-             # Generate PDF
-             with st.spinner("Building PDF report..."):
-                 try:
-                     ai_summary = bedrock_llm.generate_llm_report_summary(
-                          st.session_state.kpis,
-                          st.session_state.top_keywords,
-                          st.session_state.full_data,
-                          brand
-                     )
-                     md, pdf_bytes = report_gen.generate_report(
-                         kpis=st.session_state.kpis,
-                         top_keywords=st.session_state.top_keywords,
-                         full_articles_data=st.session_state.full_data,
-                         brand=brand,
-                         competitors=competitors,
-                         timeframe_hours=time_range_text,
-                         include_json=False
-                     )
-                     st.session_state.pdf_report_bytes = pdf_bytes
-                     st.session_state.ai_summary_text = ai_summary # Store summary for email body
-                     pdf_generated = True
-                 except Exception:
-                     st.error("Failed to generate PDF report:\n" + traceback.format_exc())
+            with st.spinner("Building PDF report..."):
+                try:
+                    ai_summary = bedrock_llm.generate_llm_report_summary(st.session_state.kpis, st.session_state.top_keywords, st.session_state.full_data, brand)
+                    md, pdf_bytes = report_gen.generate_report(kpis=st.session_state.kpis, top_keywords=st.session_state.top_keywords, full_articles_data=st.session_state.full_data, brand=brand, competitors=competitors, timeframe_hours=time_range_text, include_json=False)
+                    st.session_state.pdf_report_bytes = pdf_bytes
+                    st.session_state.ai_summary_text = ai_summary
+                    pdf_generated = True
+                except Exception as e:
+                    st.error(f"Failed to generate PDF report: {e}\n{traceback.format_exc()}") # Show more detail
 
-             # Generate Excel
-             with st.spinner("Building Excel mentions file..."):
-                 try:
-                     excel_data = []
-                     for item in st.session_state.full_data:
-                         excel_data.append({
-                             'Date': item.get('date', 'N/A'), 'Sentiment': item.get('sentiment', 'N/A'),
-                             'Source': item.get('source', 'N/A'), 'Mention Text': item.get('text', ''),
-                             'Link': item.get('link', '#'), 'Likes': item.get('likes', 0),
-                             'Comments': item.get('comments', 0)
-                         })
-                     df_excel = pd.DataFrame(excel_data)
-                     output = io.BytesIO()
-                     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                          df_excel.to_excel(writer, index=False, sheet_name='Mentions')
-                     st.session_state.excel_report_bytes = output.getvalue()
-                     excel_generated = True
-                 except Exception as e:
-                      st.error(f"Failed to generate Excel file: {e}")
+            with st.spinner("Building Excel mentions file..."):
+                try:
+                    excel_data = [{'Date': item.get('date', 'N/A'), 'Sentiment': item.get('sentiment', 'N/A'), 'Source': item.get('source', 'N/A'), 'Mention Text': item.get('text', ''), 'Link': item.get('link', '#'), 'Likes': item.get('likes', 0), 'Comments': item.get('comments', 0)} for item in st.session_state.full_data]
+                    df_excel = pd.DataFrame(excel_data)
+                    output = io.BytesIO()
+                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                        df_excel.to_excel(writer, index=False, sheet_name='Mentions')
+                    st.session_state.excel_report_bytes = output.getvalue()
+                    excel_generated = True
+                except Exception as e:
+                    st.error(f"Failed to generate Excel file: {e}")
 
-             # Set flag only if BOTH files generated successfully
-             if pdf_generated and excel_generated:
-                  st.session_state.report_generated = True
-                  st.success("Reports Generated Successfully!")
-                  # Show AI summary immediately
-                  with st.expander("View AI Summary & Recommendations", expanded=True):
-                      st.markdown(st.session_state.ai_summary_text)
-             else:
-                  st.error("Report generation failed. Please check errors above.")
+            if pdf_generated and excel_generated:
+                st.session_state.report_generated = True
+                st.success("Reports Generated Successfully!")
+                with st.expander("View AI Summary & Recommendations", expanded=True):
+                    st.markdown(st.session_state.ai_summary_text) # Use stored summary
+            else:
+                st.error("Report generation failed.")
 
-    # --- Conditional Display of Download & Email Buttons ---
+    # Conditional Display of Download & Email Buttons
     if st.session_state.get('report_generated', False):
-        st.markdown("---") # Separator
+        st.markdown("---")
         col_dl_pdf, col_dl_excel, col_email = st.columns(3)
 
         with col_dl_pdf:
-             if st.session_state.get('pdf_report_bytes'):
-                 st.download_button(
-                     label="Download PDF Summary",
-                     data=st.session_state.pdf_report_bytes,
-                     file_name=f"{brand}_FlashNarrative_Report.pdf",
-                     mime="application/pdf",
-                     use_container_width=True,
-                     key="pdf_download"
-                 )
+            if st.session_state.get('pdf_report_bytes'):
+                st.download_button(label="Download PDF Summary", data=st.session_state.pdf_report_bytes, file_name=f"{brand}_FlashNarrative_Report.pdf", mime="application/pdf", use_container_width=True, key="pdf_download")
 
         with col_dl_excel:
-             if st.session_state.get('excel_report_bytes'):
-                 st.download_button(
-                     label="Download Mentions (Excel)",
-                     data=st.session_state.excel_report_bytes,
-                     file_name=f"{brand}_FlashNarrative_Mentions.xlsx",
-                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                     use_container_width=True,
-                     key="excel_download"
-                 )
+            if st.session_state.get('excel_report_bytes'):
+                st.download_button(label="Download Mentions (Excel)", data=st.session_state.excel_report_bytes, file_name=f"{brand}_FlashNarrative_Mentions.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True, key="excel_download")
 
         with col_email:
-             # Get email from state if it exists, otherwise from input
-             email_to_send = st.session_state.get("recipient_email_input", "")
-             if not email_to_send:
-                 st.button("Email Generated Reports", disabled=True, use_container_width=True, help="Enter recipient email above.")
-             elif st.button("Email Generated Reports", use_container_width=True, key="email_reports"):
-                 if not st.session_state.get('pdf_report_bytes') or not st.session_state.get('excel_report_bytes'):
-                      st.error("Cannot email reports. Generation failed or files missing.")
-                 else:
-                      with st.spinner(f"Sending reports to {email_to_send}..."):
-                           # Prepare attachments list
-                           attachments = [
-                               (f"{brand}_FlashNarrative_Report.pdf", st.session_state.pdf_report_bytes, 'application/pdf'),
-                               (f"{brand}_FlashNarrative_Mentions.xlsx", st.session_state.excel_report_bytes, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-                           ]
-                           subject = f"FlashNarrative Report for {brand} ({time_range_text})"
-                           # Use stored AI summary in body
-                           ai_summary = st.session_state.get("ai_summary_text", "AI Summary could not be generated.")
-                           body = f"Please find attached the FlashNarrative reports for {brand} covering {time_range_text}.\n\nAI Summary:\n{ai_summary}"
-
-                           sent = servicenow_integration.send_report_email_with_attachments(
-                               email_to_send, subject, body, attachments
-                           )
-                           if sent:
-                               st.success(f"Reports emailed successfully to {email_to_send}!")
-                           else:
-                               st.error("Failed to send email. Check logs and .env SMTP settings.")
-
+            email_to_send = st.session_state.get("recipient_email_input", "")
+            if not email_to_send:
+                st.button("Email Generated Reports", disabled=True, use_container_width=True, help="Enter recipient email above.")
+            elif st.button("Email Generated Reports", use_container_width=True, key="email_reports"):
+                if not st.session_state.get('pdf_report_bytes') or not st.session_state.get('excel_report_bytes'):
+                    st.error("Cannot email. Report files missing.")
+                else:
+                    with st.spinner(f"Sending reports to {email_to_send}..."):
+                        attachments = [
+                            (f"{brand}_FlashNarrative_Report.pdf", st.session_state.pdf_report_bytes, 'application/pdf'),
+                            (f"{brand}_FlashNarrative_Mentions.xlsx", st.session_state.excel_report_bytes, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                        ]
+                        subject = f"FlashNarrative Report for {brand} ({time_range_text})"
+                        ai_summary = st.session_state.get("ai_summary_text", "AI Summary could not be generated.")
+                        body = f"Please find attached the FlashNarrative reports for {brand} covering {time_range_text}.\n\nAI Summary:\n{ai_summary}"
+                        sent = servicenow_integration.send_report_email_with_attachments(email_to_send, subject, body, attachments)
+                        if sent:
+                            st.success(f"Reports emailed successfully to {email_to_send}!")
+                        # Error is handled within the send function now
 
 def main():
-    """
-    Main function to run the Streamlit app.
-    """
+    """ Main function to run the Streamlit app. """
     st.set_page_config(page_title="FlashNarrative Dashboard", layout="wide")
 
-    # Auth Check
     if not st.session_state.get('logged_in', False):
         st.error("You must be logged in...")
         st.page_link("app.py", label="Go to Login", icon="🔒")
         st.stop()
 
-    st.title(f"FlashNarrative AI Dashboard")
+    st.title("FlashNarrative AI Dashboard")
     st.markdown("Monitor brand perception in real-time.")
 
     # Initialize Session State
-    if 'full_data' not in st.session_state:
-        st.session_state.full_data = []
-    if 'kpis' not in st.session_state:
-        st.session_state.kpis = {}
-    if 'top_keywords' not in st.session_state:
-        st.session_state.top_keywords = []
-    # Add state for report generation/download/email
-    if 'report_generated' not in st.session_state:
-        st.session_state.report_generated = False
-    if 'pdf_report_bytes' not in st.session_state:
-        st.session_state.pdf_report_bytes = None
-    if 'excel_report_bytes' not in st.session_state:
-        st.session_state.excel_report_bytes = None
-    if 'ai_summary_text' not in st.session_state:
-        st.session_state.ai_summary_text = ""
-
+    if 'full_data' not in st.session_state: st.session_state.full_data = []
+    if 'kpis' not in st.session_state: st.session_state.kpis = {}
+    if 'top_keywords' not in st.session_state: st.session_state.top_keywords = []
+    if 'report_generated' not in st.session_state: st.session_state.report_generated = False
+    if 'pdf_report_bytes' not in st.session_state: st.session_state.pdf_report_bytes = None
+    if 'excel_report_bytes' not in st.session_state: st.session_state.excel_report_bytes = None
+    if 'ai_summary_text' not in st.session_state: st.session_state.ai_summary_text = ""
 
     # Inputs
     st.subheader("Monitoring Setup")
     col_i1, col_i2, col_i3 = st.columns(3)
-
-    with col_i1:
-        brand = st.text_input("Enter your brand name", value="Nike")
+    with col_i1: brand = st.text_input("Brand Name", value="Nike")
     with col_i2:
-        competitors_input = st.text_input("Enter competitors (comma-separated)", value="Adidas, Puma")
+        competitors_input = st.text_input("Competitors (comma-separated)", value="Adidas, Puma")
         competitors = [c.strip() for c in competitors_input.split(",") if c.strip()]
-    with col_i3:
-        industry = st.selectbox("Select Industry (for better RSS results)",
-                                ['default', 'Personal Brand', 'tech', 'finance', 'healthcare', 'retail'], index=0,
-                                help="Select 'Personal Brand' or 'default' if searching for a person.")
+    with col_i3: industry = st.selectbox("Industry", ['default', 'Personal Brand', 'tech', 'finance', 'healthcare', 'retail'], index=0, help="Affects RSS feed selection.")
 
-    campaign_input = st.text_area("Enter campaign messages (one per line, for MPI)",
-                                  value="Just Do It\nAir Max Launch", height=100)
+    campaign_input = st.text_area("Campaign Messages (one per line)", value="Just Do It\nAir Max Launch", height=100)
     campaign_messages = [c.strip() for c in campaign_input.split("\n") if c.strip()]
-
-    time_range_text = st.selectbox("Select time frame",
-                                   options=["Last 24 hours", "Last 48 hours", "Last 7 days", "Last 30 days (Max)"], index=0,
-                                   help="News & blog APIs are typically limited to 30 days of history.")
+    time_range_text = st.selectbox("Time Frame", ["Last 24 hours", "Last 48 hours", "Last 7 days", "Last 30 days (Max)"], index=0, help="Max history depends on data sources.")
     time_map = {"Last 24 hours": 24, "Last 48 hours": 48, "Last 7 days": 168, "Last 30 days (Max)": 720}
     hours = time_map[time_range_text]
 
     # Run Button
     if st.button("Run Analysis", type="primary", use_container_width=True):
-        # Clear old data AND report generation state
         st.session_state.full_data = []
         st.session_state.kpis = {}
         st.session_state.top_keywords = []
-        st.session_state.report_generated = False # Reset flag
+        st.session_state.report_generated = False
         st.session_state.pdf_report_bytes = None
         st.session_state.excel_report_bytes = None
         st.session_state.ai_summary_text = ""
@@ -362,7 +312,5 @@ def main():
     # Display Results
     display_dashboard(brand, competitors, time_range_text)
 
-# This makes the script runnable
 if __name__ == "__main__":
     main()
-```

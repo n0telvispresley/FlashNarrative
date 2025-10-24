@@ -1,9 +1,15 @@
+# servicenow_integration.py
 import os
 import requests
 import base64
 from slack_sdk import WebClient
 import smtplib
 from email.mime.text import MIMEText
+# --- Add imports for attachments ---
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email import encoders
+# --- End imports ---
 
 def create_servicenow_ticket(title, description, urgency='2', impact='2'):
     """
@@ -13,11 +19,11 @@ def create_servicenow_ticket(title, description, urgency='2', impact='2'):
     instance = os.getenv('SERVICENOW_INSTANCE')
     user = os.getenv('SERVICENOW_USER')
     password = os.getenv('SERVICENOW_PASSWORD')
-    
+
     if not all([instance, user, password]):
         print(f"[Mock ServiceNow Ticket] {title} - {description}")
         return
-    
+
     try:
         auth = base64.b64encode(f"{user}:{password}".encode()).decode()
         headers = {
@@ -43,7 +49,7 @@ def create_servicenow_ticket(title, description, urgency='2', impact='2'):
 
 def send_alert(msg, channel='#alerts', to_email=None):
     """
-    Send alert message via Slack or Email.
+    Send alert message via Slack or Email (simple text).
     Falls back to print if both fail.
     """
     sent = False
@@ -54,31 +60,98 @@ def send_alert(msg, channel='#alerts', to_email=None):
         try:
             client = WebClient(token=token)
             client.chat_postMessage(channel=channel, text=msg)
+            print("[Slack Alert Sent]")
             sent = True
         except Exception as e:
             print(f"[Slack Error] {e}")
 
-    # Attempt Email if Slack fails or no token
-    if not sent:
+    # Attempt Email if Slack fails or no token (use simple text email)
+    if not sent and to_email:
         smtp_server = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
         smtp_port = int(os.getenv('SMTP_PORT', 587))
         smtp_user = os.getenv('SMTP_USER')
-        smtp_pass = os.getenv('SMTP_PASS')
-        if smtp_user and smtp_pass and to_email:
+        smtp_pass = os.getenv('SMTP_PASS') # Use App Password for Gmail
+        if smtp_user and smtp_pass:
             try:
                 server = smtplib.SMTP(smtp_server, smtp_port, timeout=10)
                 server.starttls()
                 server.login(smtp_user, smtp_pass)
                 email_msg = MIMEText(msg)
-                email_msg['Subject'] = 'PR Alert'
+                email_msg['Subject'] = 'FlashNarrative Alert'
                 email_msg['From'] = smtp_user
                 email_msg['To'] = to_email
                 server.send_message(email_msg)
                 server.quit()
+                print(f"[Email Alert Sent] to {to_email}")
                 sent = True
             except Exception as e:
-                print(f"[Email Error] {e}")
+                print(f"[Email Alert Error] {e}")
 
-    # Fallback
+    # Fallback print
     if not sent:
-        print(f"[Alert Fallback] {msg}")
+        print(f"[Alert Fallback - Print] {msg}")
+
+# --- NEW FUNCTION FOR SENDING REPORTS WITH ATTACHMENTS ---
+def send_report_email_with_attachments(to_email, subject, body, attachments):
+    """
+    Sends an email with one or more attachments.
+
+    Args:
+        to_email (str): Recipient email address.
+        subject (str): Email subject line.
+        body (str): Email body text.
+        attachments (list): A list of tuples, where each tuple is
+                          (filename, content_bytes, mime_type).
+                          Example: [('report.pdf', pdf_bytes, 'application/pdf'),
+                                    ('data.xlsx', excel_bytes, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')]
+    Returns:
+        bool: True if email sent successfully, False otherwise.
+    """
+    smtp_server = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
+    smtp_port = int(os.getenv('SMTP_PORT', 587))
+    smtp_user = os.getenv('SMTP_USER')
+    smtp_pass = os.getenv('SMTP_PASS') # Use App Password for Gmail
+
+    if not all([smtp_user, smtp_pass, to_email]):
+        print("[Email Error] Missing SMTP credentials or recipient email.")
+        st.error("Email configuration incomplete. Cannot send report.") # Show error in UI
+        return False
+
+    try:
+        # Create the main message container
+        msg = MIMEMultipart()
+        msg['From'] = smtp_user
+        msg['To'] = to_email
+        msg['Subject'] = subject
+
+        # Attach the body text
+        msg.attach(MIMEText(body, 'plain'))
+
+        # Loop through attachments and add them
+        for filename, content_bytes, mime_type in attachments:
+            maintype, subtype = mime_type.split('/', 1)
+            part = MIMEBase(maintype, subtype)
+            part.set_payload(content_bytes)
+            encoders.encode_base64(part)
+            part.add_header('Content-Disposition', f"attachment; filename= {filename}")
+            msg.attach(part)
+
+        # Send the email
+        server = smtplib.SMTP(smtp_server, smtp_port, timeout=20) # Increased timeout
+        server.ehlo() # Identify ourselves to the SMTP server
+        server.starttls() # Secure the connection
+        server.ehlo() # Re-identify ourselves over TLS connection
+        server.login(smtp_user, smtp_pass)
+        server.send_message(msg)
+        server.quit()
+        print(f"[Email Sent] Report with {len(attachments)} attachment(s) sent to {to_email}")
+        return True
+    except smtplib.SMTPAuthenticationError:
+         print("[Email Error] SMTP Authentication Failed. Check email/password (use App Password for Gmail).")
+         st.error("Email Authentication Failed. Please check SMTP credentials in .env.")
+         return False
+    except Exception as e:
+        print(f"[Email Error] Failed to send report: {e}")
+        st.error(f"Failed to send email report: {e}")
+        return False
+# --- END OF NEW FUNCTION ---

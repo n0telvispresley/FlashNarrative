@@ -1,4 +1,3 @@
-```python
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
@@ -120,7 +119,7 @@ def fetch_all(brand, time_frame, competitors):
     mentions.extend(fetch_fb(brand, time_frame, competitors))
     mentions.extend(fetch_ig(brand, time_frame, competitors))
     mentions.extend(fetch_threads(brand, time_frame, competitors))
-    return {'mentions': [m['text'] for m in mentions], 'full_data': mentions}  # For analysis
+    return {'mentions': [m['text'] for m in mentions], 'full_data': mentions}
 
 # Schedule integration for periodic fetch (use in thread for production)
 def run_periodic_fetch(brand, time_frame, competitors, interval_minutes=5):
@@ -133,12 +132,9 @@ def run_periodic_fetch(brand, time_frame, competitors, interval_minutes=5):
         schedule.run_pending()
         time.sleep(1)
 
-# For MVP, button-triggered; to run periodic: threading.Thread(target=run_periodic_fetch, args=(brand, time_frame, competitors)).start()
-
 # Comments:
 # - Prioritize Google News scraping for real high-impact data; social uses dummy to avoid auth/block issues in hackathon.
 # - Filter by time via tbs=cdr in URL; extract mentions for SOV (count per brand), Reach (sum per source).
 # - Add engagement (likes/comments) in dummy for social tracking.
 # - Robust with try/except and dummy fallback.
 # - Under 150 lines: Focus on core functions.
-```

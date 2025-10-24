@@ -5,7 +5,7 @@ from slack_sdk import WebClient
 import smtplib
 from email.mime.text import MIMEText
 
-def create_ticket(title, description):
+def create_servicenow_ticket(title, description):
     """Create ServiceNow ticket; mock with print if no creds."""
     instance = os.getenv('SERVICENOW_INSTANCE')
     user = os.getenv('SERVICENOW_USER')
@@ -74,7 +74,4 @@ def send_alert(msg, channel='#alerts', to_email='user@email.com'):
     
     if not sent:
         print(f"Alert: {msg}")
-
-# Comments: Use env vars for creds (secure); MVP demo prints if missing.
-# Integrate in dashboard: call after condition check.
-# Under 50 lines: Focused on core logic with try/except.
+        

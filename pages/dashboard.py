@@ -197,32 +197,30 @@ if st.session_state.kpis:
 
     # ... (inside the 'data_col2' block) ...
     with data_col2:
-        # --- CHANGE THE TITLE ---
-        st.markdown(f"**Recent Mentions (for {brand})**")
+        # --- CHANGE 1: Update the title ---
+        st.markdown("**Recent Mentions (All Brands)**")
         
         if st.session_state.full_data:
             
-            # --- ADD THIS FILTER ---
-            # Filter the list to only show mentions of the main brand
-            brand_mentions_only = [
-                item for item in st.session_state.full_data 
-                if brand.lower() in (mb.lower() for mb in item.get('mentioned_brands', []))
-            ]
+            # --- CHANGE 2: DELETE the brand_mentions_only filter ---
+            # (Delete these 4 lines)
+            # brand_mentions_only = [
+            #    item for item in st.session_state.full_data 
+            #    if brand.lower() in (mb.lower() for mb in item.get('mentioned_brands', []))
+            # ]
             
             display_data = []
             
-            # --- CHANGE THIS LINE to use the new filtered list ---
-            for item in brand_mentions_only[:20]: # Show top 20 of *brand* mentions
+            for item in st.session_state.full_data[:20]: # Show top 20 of ALL mentions
                 display_data.append({
                     'Sentiment': item.get('sentiment', 'N/A'),
-                    'Source': item.get('source', 'N/A'),
+                    'Source': item.get('source', 'N/A'),    # This will now show "Sarah K. (fb)"
                     'Mention': item.get('text', '')[:100] + "...",
-                    'Link': item.get('link', '#')
+                    'Link': item.get('link', '#')          # This will now link to facebook.com
                 })
             
             st.dataframe(
                 pd.DataFrame(display_data),
-    # ... (rest of the file is unchanged) ...,
                 column_config={
                     "Link": st.column_config.LinkColumn("Link", display_text="Source Link")
                 },
@@ -231,7 +229,6 @@ if st.session_state.kpis:
             )
         else:
             st.write("No mentions to display.")
-
     # --- Report Generation ---
     st.subheader("Generate Report")
     if st.button("Generate PDF Report", use_container_width=True):

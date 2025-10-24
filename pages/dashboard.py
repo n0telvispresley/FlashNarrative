@@ -6,14 +6,14 @@ import traceback
 from dotenv import load_dotenv
 
 # Load .env variables at the top
-load_dotenv() 
+load_dotenv()
 
 # --- IMPORTANT: Use relative imports from the root ---
 import analysis
 import report_gen
-import scraper  # Fixed the erroneous period
+import scraper  # Fixed: Removed erroneous period from 'import scraper.'
 import bedrock
-import servicenow_integration
+import servicenow_integration  # For alerts
 
 # --- Page Config & Auth Check ---
 st.set_page_config(page_title="FlashNarrative Dashboard", layout="wide")
@@ -22,9 +22,9 @@ st.set_page_config(page_title="FlashNarrative Dashboard", layout="wide")
 if not st.session_state.get('logged_in', False):
     st.error("You must be logged in to view this page.")
     st.page_link("app.py", label="Go to Login", icon="🔒")
-    st.stop() # Stop execution if not logged in
+    st.stop()  # Stop execution if not logged in
 
-st.title(f"FlashNarrative AI Dashboard")
+st.title("FlashNarrative AI Dashboard")
 st.markdown("Monitor brand perception in real-time.")
 
 # --- Initialize Session State ---
@@ -41,7 +41,7 @@ col_i1, col_i2, col_i3 = st.columns(3)
 
 with col_i1:
     brand = st.text_input("Enter your brand name", value="Nike")
-    
+
 with col_i2:
     competitors_input = st.text_input(
         "Enter competitors (comma-separated)",
@@ -76,11 +76,10 @@ time_map = {
     "Last 24 hours": 24,
     "Last 48 hours": 48,
     "Last 7 days": 168,  # 7 * 24
-    "Last 30 days (Max)": 720 # 30 * 24
+    "Last 30 days (Max)": 720  # 30 * 24
 }
 hours = time_map[time_range_text]
 # --- END OF CHANGE ---
-
 
 # --- The "Run" Button ---
 if st.button("Run Analysis", type="primary", use_container_width=True):
@@ -88,12 +87,12 @@ if st.button("Run Analysis", type="primary", use_container_width=True):
         # --- CHANGE: Updated spinner text ---
         with st.spinner(f"Scraping the web for '{brand}' ({time_range_text})..."):
             scraped_data = scraper.fetch_all(
-                brand=brand, 
-                time_frame=hours, # This now passes 24, 48, 168, or 720
-                competitors=competitors, 
+                brand=brand,
+                time_frame=hours,  # This now passes 24, 48, 168, or 720
+                competitors=competitors,
                 industry=industry
             )
-        
+
         if not scraped_data['full_data']:
             st.warning("No mentions found. Try a broader timeframe or different keywords.")
             st.stop()
@@ -102,11 +101,11 @@ if st.button("Run Analysis", type="primary", use_container_width=True):
         with st.spinner("Running AI sentiment analysis on results..."):
             temp_data = scraped_data['full_data']
             progress_bar = st.progress(0, text="Analyzing sentiment...")
-            
+
             for i, item in enumerate(temp_data):
                 item['sentiment'] = bedrock.get_llm_sentiment(item.get('text', ''))
                 progress_bar.progress((i + 1) / len(temp_data), text=f"Analyzing: {item['text'][:50]}...")
-            
+
             progress_bar.empty()
             st.session_state.full_data = temp_data
 
@@ -116,20 +115,20 @@ if st.button("Run Analysis", type="primary", use_container_width=True):
                 full_data=st.session_state.full_data,
                 campaign_messages=campaign_messages,
                 industry=industry,
-                hours=hours, # This passes the correct hour number
+                hours=hours,  # This passes the correct hour number
                 brand=brand
             )
-        
+
         # 4. Extract Keywords
         all_text = " ".join([item["text"] for item in st.session_state.full_data])
         analysis.stop_words.add(brand.lower())
         for c in competitors:
             analysis.stop_words.add(c.lower())
-            
+
         st.session_state.top_keywords = analysis.extract_keywords(all_text, top_n=10)
 
         st.success("Analysis complete!")
-        
+
         # 5. Check for Alerts
         sentiment_ratio = st.session_state.kpis.get('sentiment_ratio', {})
         neg_pct = sentiment_ratio.get('negative', 0) + sentiment_ratio.get('anger', 0)
@@ -146,7 +145,7 @@ if st.button("Run Analysis", type="primary", use_container_width=True):
 if st.session_state.kpis:
     st.subheader("Key Performance Indicators")
     kpis = st.session_state.kpis
-    
+
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Media Impact (MIS)", f"{kpis.get('mis', 0):.0f}")
     col2.metric("Message Penetration (MPI)", f"{kpis.get('mpi', 0):.1f}%")
@@ -180,7 +179,7 @@ if st.session_state.kpis:
         # SOV Bar Chart
         all_brands = kpis.get("all_brands", [brand] + competitors)
         sov_values = kpis.get("sov", [0] * len(all_brands))
-        
+
         sov_df = pd.DataFrame({'Brand': all_brands, 'Share of Voice (%)': sov_values})
         fig_sov = px.bar(sov_df, x='Brand', y='Share of Voice (%)', title="Share of Voice (SOV)",
                          color='Brand')
@@ -212,7 +211,7 @@ if st.session_state.kpis:
                     'Mention': item.get('text', '')[:100] + "...",
                     'Link': item.get('link', '#')
                 })
-            
+
             st.dataframe(
                 pd.DataFrame(display_data),
                 column_config={
@@ -223,7 +222,7 @@ if st.session_state.kpis:
             )
         else:
             st.write("No mentions to display.")
-            
+
     # --- Report Generation ---
     st.subheader("Generate Report")
     if st.button("Generate PDF Report", use_container_width=True):
@@ -236,24 +235,23 @@ if st.session_state.kpis:
                     full_articles_data=st.session_state.full_data,
                     brand=brand,
                     competitors=competitors,
-                    timeframe_hours=time_range_text, # <-- Pass "Last 7 days"
+                    timeframe_hours=time_range_text,  # Pass "Last 7 days"
                     include_json=False
                 )
-                # --- END OF CHANGE ---
-                
+
                 st.download_button(
-                    "Download PDF Report", 
-                    data=pdf_bytes, 
-                    file_name=f"{brand}_FlashNarrative_Report.pdf", 
+                    "Download PDF Report",
+                    data=pdf_bytes,
+                    file_name=f"{brand}_FlashNarrative_Report.pdf",
                     mime="application/pdf",
                     use_container_width=True
                 )
-                
+
                 with st.expander("View AI Summary & Recommendations", expanded=True):
                     ai_summary = bedrock.generate_llm_report_summary(
-                        st.session_state.kpis, 
-                        st.session_state.top_keywords, 
-                        st.session_state.full_data, 
+                        st.session_state.kpis,
+                        st.session_state.top_keywords,
+                        st.session_state.full_data,
                         brand
                     )
                     st.markdown(ai_summary)

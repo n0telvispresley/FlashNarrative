@@ -142,7 +142,14 @@ if st.button("Analyze"):
             st.session_state['top_keywords'] = extract_keywords(all_text)
             
             # Compute KPIs
-            kpis = compute_kpis(data['full_data'], tones, campaign_messages.split(','), industry)
+            kpis = compute_kpis(
+                data['full_data'], 
+                tones, 
+                [msg.strip() for msg in campaign_messages.split(',')], 
+                industry,
+                hours=time_frame,  # strict hour filtering
+                brand=brand
+            )
             st.session_state['kpis'] = kpis
             
             # Alerts
@@ -163,12 +170,10 @@ if st.session_state['kpis']:
     col1, col2 = st.columns(2)
     
     with col1:
-        # Sentiment Pie
         sentiment_df = pd.DataFrame(list(kpis['sentiment_ratio'].items()), columns=['Tone', 'Percentage'])
         fig_pie = px.pie(sentiment_df, values='Percentage', names='Tone', title='Sentiment Ratio')
         st.plotly_chart(fig_pie)
         
-        # SOV Bar
         sov_df = pd.DataFrame({'Brand': [brand] + competitors, 'SOV': kpis['sov']})
         fig_bar = px.bar(sov_df, x='Brand', y='SOV', title='Share of Voice')
         st.plotly_chart(fig_bar)
@@ -179,29 +184,36 @@ if st.session_state['kpis']:
         st.metric("MPI", kpis['mpi'])
         st.metric("Engagement Rate", kpis['engagement_rate'])
         st.metric("Reach/Impressions", kpis['reach'])
+        st.metric("Brand Sentiment", f"{kpis['small_brand_sentiment']:.2f}%")
         
         st.subheader("Top Keywords")
         if st.session_state['top_keywords']:
             st.table(pd.DataFrame(st.session_state['top_keywords'], columns=['Keyword', 'Frequency']))
     
     # PDF Report
-    if st.button("Generate PDF Report"):
-        if not module_status.get("report_gen", False):
-            st.error("Cannot generate report: report_gen.py failed to import.")
-        else:
-            try:
-                md, pdf_bytes = generate_report(kpis, st.session_state['top_keywords'], brand, competitors)
-                st.session_state['md'] = md
-                st.session_state['pdf_bytes'] = pdf_bytes
-                st.download_button(
-                    label="Download Report",
-                    data=st.session_state['pdf_bytes'],
-                    file_name=f"{brand}_report.pdf",
-                    mime="application/pdf"
-                )
-                st.markdown(st.session_state['md'])
-            except Exception as e:
-                st.error(f"PDF generation failed: {e}")
+   if st.button("Generate PDF Report"):
+    if not module_status.get("report_gen", False):
+        st.error("Cannot generate report: report_gen.py failed to import.")
+    else:
+        try:
+            md, pdf_bytes = generate_report(
+                kpis, 
+                st.session_state['top_keywords'], 
+                brand, 
+                competitors
+            )
+            st.session_state['md'] = md
+            st.session_state['pdf_bytes'] = pdf_bytes
+            st.download_button(
+                label="Download Report",
+                data=st.session_state['pdf_bytes'],
+                file_name=f"{brand}_report.pdf",
+                mime="application/pdf"
+            )
+            st.markdown(st.session_state['md'])
+        except Exception as e:
+            st.error(f"PDF generation failed: {e}")
+
 
 # Refresh button
 if st.button("Refresh"):
@@ -221,3 +233,4 @@ if st.button("Refresh"):
 # - Ensured scraper.py output is accessed correctly (assumes 'full_data' key).
 # - Maintained debug output and directory listing.
 # - Use with updated requirements.txt and fixed servicenow_integration.py.
+

@@ -193,13 +193,26 @@ if st.session_state.kpis:
         else:
             st.write("- No keywords identified.")
 
+    # pages/dashboard.py
+
+    # ... (inside the 'data_col2' block) ...
     with data_col2:
-        # Top Sources / Links
-        st.markdown("**Recent Mentions**")
+        # --- CHANGE THE TITLE ---
+        st.markdown(f"**Recent Mentions (for {brand})**")
+        
         if st.session_state.full_data:
-            # Display a clean dataframe of mentions
+            
+            # --- ADD THIS FILTER ---
+            # Filter the list to only show mentions of the main brand
+            brand_mentions_only = [
+                item for item in st.session_state.full_data 
+                if brand.lower() in (mb.lower() for mb in item.get('mentioned_brands', []))
+            ]
+            
             display_data = []
-            for item in st.session_state.full_data[:20]: # Show top 20
+            
+            # --- CHANGE THIS LINE to use the new filtered list ---
+            for item in brand_mentions_only[:20]: # Show top 20 of *brand* mentions
                 display_data.append({
                     'Sentiment': item.get('sentiment', 'N/A'),
                     'Source': item.get('source', 'N/A'),
@@ -209,6 +222,7 @@ if st.session_state.kpis:
             
             st.dataframe(
                 pd.DataFrame(display_data),
+    # ... (rest of the file is unchanged) ...,
                 column_config={
                     "Link": st.column_config.LinkColumn("Link", display_text="Source Link")
                 },

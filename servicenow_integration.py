@@ -1,3 +1,6 @@
+Got it. Here's the corrected `servicenow_integration.py` file with the `st.error` lines removed.
+
+```python
 # servicenow_integration.py
 import os
 import requests
@@ -91,21 +94,10 @@ def send_alert(msg, channel='#alerts', to_email=None):
     if not sent:
         print(f"[Alert Fallback - Print] {msg}")
 
-# --- NEW FUNCTION FOR SENDING REPORTS WITH ATTACHMENTS ---
+# --- FUNCTION FOR SENDING REPORTS WITH ATTACHMENTS ---
 def send_report_email_with_attachments(to_email, subject, body, attachments):
     """
-    Sends an email with one or more attachments.
-
-    Args:
-        to_email (str): Recipient email address.
-        subject (str): Email subject line.
-        body (str): Email body text.
-        attachments (list): A list of tuples, where each tuple is
-                          (filename, content_bytes, mime_type).
-                          Example: [('report.pdf', pdf_bytes, 'application/pdf'),
-                                    ('data.xlsx', excel_bytes, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')]
-    Returns:
-        bool: True if email sent successfully, False otherwise.
+    Sends an email with one or more attachments. Returns True/False.
     """
     smtp_server = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
     smtp_port = int(os.getenv('SMTP_PORT', 587))
@@ -114,8 +106,8 @@ def send_report_email_with_attachments(to_email, subject, body, attachments):
 
     if not all([smtp_user, smtp_pass, to_email]):
         print("[Email Error] Missing SMTP credentials or recipient email.")
-        st.error("Email configuration incomplete. Cannot send report.") # Show error in UI
-        return False
+        # --- REMOVED st.error ---
+        return False # Indicate failure
 
     try:
         # Create the main message container
@@ -145,13 +137,14 @@ def send_report_email_with_attachments(to_email, subject, body, attachments):
         server.send_message(msg)
         server.quit()
         print(f"[Email Sent] Report with {len(attachments)} attachment(s) sent to {to_email}")
-        return True
+        return True # Indicate success
     except smtplib.SMTPAuthenticationError:
          print("[Email Error] SMTP Authentication Failed. Check email/password (use App Password for Gmail).")
-         st.error("Email Authentication Failed. Please check SMTP credentials in .env.")
-         return False
+         # --- REMOVED st.error ---
+         return False # Indicate failure
     except Exception as e:
         print(f"[Email Error] Failed to send report: {e}")
-        st.error(f"Failed to send email report: {e}")
-        return False
-# --- END OF NEW FUNCTION ---
+        # --- REMOVED st.error ---
+        return False # Indicate failure
+# --- END OF FUNCTION ---
+```

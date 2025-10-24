@@ -1,13 +1,33 @@
-# dashboard.py
 import streamlit as st
 import sys
 import os
+import traceback
+
 # Add the root directory (/mount/src/flashnarrative/) to sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 # Debug: Print sys.path and working directory
 st.write(f"sys.path: {sys.path}")
 st.write(f"Working directory: {os.getcwd()}")
 st.write(f"Current file dir: {os.path.abspath(os.path.dirname(__file__))}")
+
+# Debug: List directory structure
+st.subheader("Project Directory Structure")
+def list_directory(path, indent=""):
+    result = []
+    try:
+        for item in sorted(os.listdir(path)):
+            item_path = os.path.join(path, item)
+            if os.path.isdir(item_path):
+                result.append(f"{indent}📁 {item}/")
+                result.extend(list_directory(item_path, indent + "  "))
+            else:
+                result.append(f"{indent}📄 {item}")
+    except Exception as e:
+        result.append(f"{indent}Error listing directory {path}: {e}")
+    return result
+
+structure = list_directory(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+st.write("\n".join(structure))
 
 import pandas as pd
 import plotly.express as px
@@ -20,45 +40,54 @@ from email.mime.text import MIMEText
 from slack_sdk import WebClient
 
 # Debug: Test module imports and function existence
+module_status = {}
 try:
     from scraper import fetch_all
     st.write("scraper.py: fetch_all imported successfully")
+    module_status["scraper"] = True
+except SyntaxError as e:
+    st.error(f"SyntaxError in scraper.py: {e}")
+    # Attempt to read the problematic line
+    try:
+        with open(os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')), 'scraper.py'), 'r') as f:
+            lines = f.readlines()
+            error_line = lines[e.lineno - 1] if e.lineno <= len(lines) else "Unknown"
+            st.error(f"Error at line {e.lineno}: {error_line.strip()}")
+    except Exception as read_error:
+        st.error(f"Could not read scraper.py: {read_error}")
+    st.error(f"Full traceback: {traceback.format_exc()}")
+    module_status["scraper"] = False
 except ImportError as e:
-    st.error(f"Failed to import fetch_all from scraper.py: {e}")
-    st.stop()
+    st.error(f"ImportError in scraper.py: {e}")
+    module_status["scraper"] = False
 except Exception as e:
     st.error(f"Unexpected error in scraper.py: {e}")
-    st.stop()
+    st.error(f"Full traceback: {traceback.format_exc()}")
+    module_status["scraper"] = False
 
 try:
     from analysis import analyze_sentiment, compute_kpis
     st.write("analysis.py: analyze_sentiment and compute_kpis imported successfully")
-except ImportError as e:
-    st.error(f"Failed to import analyze_sentiment or compute_kpis from analysis.py: {e}")
-    st.stop()
+    module_status["analysis"] = True
 except Exception as e:
-    st.error(f"Unexpected error in analysis.py: {e}")
-    st.stop()
+    st.error(f"Failed to import analyze_sentiment or compute_kpis from analysis.py: {e}")
+    module_status["analysis"] = False
 
 try:
     from report_gen import generate_report
     st.write("report_gen.py: generate_report imported successfully")
-except ImportError as e:
-    st.error(f"Failed to import generate_report from report_gen.py: {e}")
-    st.stop()
+    module_status["report_gen"] = True
 except Exception as e:
-    st.error(f"Unexpected error in report_gen.py: {e}")
-    st.stop()
+    st.error(f"Failed to import generate_report from report_gen.py: {e}")
+    module_status["report_gen"] = False
 
 try:
     from servicenow_integration import create_servicenow_ticket
     st.write("servicenow_integration.py: create_servicenow_ticket imported successfully")
-except ImportError as e:
-    st.error(f"Failed to import create_servicenow_ticket from servicenow_integration.py: {e}")
-    st.stop()
+    module_status["servicenow_integration"] = True
 except Exception as e:
-    st.error(f"Unexpected error in servicenow_integration.py: {e}")
-    st.stop()
+    st.error(f"Failed to import create_servicenow_ticket from servicenow_integration.py: {e}")
+    module_status["servicenow_integration"] = False
 
 # Initialize NLTK
 try:
@@ -89,33 +118,36 @@ if 'kpis' not in st.session_state:
 
 # Analyze button
 if st.button("Analyze"):
-    try:
-        # Fetch data
-        data = fetch_all(brand, time_frame, competitors)
-        st.session_state['data'] = data
-        
-        # Analyze sentiment
-        sentiments, tones = analyze_sentiment(data['mentions'])
-        
-        # Extract keywords
-        all_text = ' '.join(data['mentions'])
-        top_keywords = nltk.FreqDist(nltk.word_tokenize(all_text.lower())).most_common(10)
-        
-        # Compute KPIs
-        kpis = compute_kpis(data['full_data'], tones, campaign_messages.split(','), industry)
-        st.session_state['kpis'] = kpis
-        
-        # Alerts
-        if kpis['sentiment_ratio'].get('negative', 0) > 50 or any('nytimes.com' in m['source'] for m in data['full_data'] if m['sentiment'] == 'negative'):
-            try:
-                create_servicenow_ticket("PR Crisis Alert", "Negative spike or high-priority mention detected.")
-                st.success("Alert sent (check console for mock).")
-            except Exception as e:
-                st.error(f"Alert failed: {e}")
-        
-        st.success("Analysis complete!")
-    except Exception as e:
-        st.error(f"Analysis error: {e}")
+    if not module_status.get("scraper", False) or not module_status.get("analysis", False):
+        st.error("Cannot analyze: scraper.py or analysis.py failed to import.")
+    else:
+        try:
+            # Fetch data
+            data = fetch_all(brand, time_frame, competitors)
+            st.session_state['data'] = data
+            
+            # Analyze sentiment
+            sentiments, tones = analyze_sentiment(data['mentions'])
+            
+            # Extract keywords
+            all_text = ' '.join(data['mentions'])
+            top_keywords = nltk.FreqDist(nltk.word_tokenize(all_text.lower())).most_common(10)
+            
+            # Compute KPIs
+            kpis = compute_kpis(data['full_data'], tones, campaign_messages.split(','), industry)
+            st.session_state['kpis'] = kpis
+            
+            # Alerts
+            if module_status.get("servicenow_integration", False) and (kpis['sentiment_ratio'].get('negative', 0) > 50 or any('nytimes.com' in m['source'] for m in data['full_data'] if m['sentiment'] == 'negative')):
+                try:
+                    create_servicenow_ticket("PR Crisis Alert", "Negative spike or high-priority mention detected.")
+                    st.success("Alert sent (check console for mock).")
+                except Exception as e:
+                    st.error(f"Alert failed: {e}")
+            
+            st.success("Analysis complete!")
+        except Exception as e:
+            st.error(f"Analysis error: {e}")
 
 # Display KPIs
 if st.session_state['kpis']:
@@ -145,22 +177,26 @@ if st.session_state['kpis']:
     
     # PDF Report
     if st.button("Generate PDF Report"):
-        try:
-            md, pdf_bytes = generate_report(kpis, top_keywords, brand, competitors)
-            st.download_button("Download Report", pdf_bytes, file_name="report.pdf", mime="application/pdf")
-            st.markdown(md)
-        except Exception as e:
-            st.error(f"PDF generation failed: {e}")
+        if not module_status.get("report_gen", False):
+            st.error("Cannot generate report: report_gen.py failed to import.")
+        else:
+            try:
+                md, pdf_bytes = generate_report(kpis, top_keywords, brand, competitors)
+                st.download_button("Download Report", pdf_bytes, file_name="report.pdf", mime="application/pdf")
+                st.markdown(md)
+            except Exception as e:
+                st.error(f"PDF generation failed: {e}")
 
 # Refresh button
 if st.button("Refresh"):
     st.rerun()
 
 # Comments:
-# - Fixed SyntaxError by removing trailing period in 'from scraper import fetch_all'.
-# - Added individual try/except blocks to debug imports for each module (scraper.py, analysis.py, report_gen.py, servicenow_integration.py).
-# - Kept sys.path.append to include /mount/src/flashnarrative/ in the search path.
-# - Retained debug output for sys.path and working directory.
-# - All features (KPIs, charts, PDF, alerts) included.
+# - Added detailed error reporting for scraper.py SyntaxError (line number and code).
+# - Lists directory structure of /mount/src/flashnarrative.
+# - Separated module imports with individual try/except blocks to isolate failures.
+# - Tracks module status to prevent crashes in Analyze/Report buttons if modules fail.
+# - Kept sys.path.append to include /mount/src/flashnarrative in the search path.
+# - All features (KPIs, charts, PDF, alerts) included, with checks for module availability.
 # - Mock alerts print to console if creds missing.
 # - Use with updated requirements.txt.

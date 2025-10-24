@@ -1,11 +1,12 @@
+# scraper.py
 """
 scraper.py
 Mixed scraper:
 - NewsAPI (key rotation) -> primary, strict hour-based filter
 - RSS feeds (hardcoded, industry-aware) -> supplement
 - Google News HTML scraping -> fallback
+- Reddit search -> real-time social
 - Dummy social scrapers for FB/IG/Threads (existing behavior)
-- Caching to cache/scraper_cache.json (TTL from .env or default 15 min)
 
 Main public function:
     fetch_all(brand, time_frame_hours, competitors, industry=None)
@@ -13,11 +14,19 @@ Main public function:
 Returns:
     {'mentions': [...texts...], 'full_data': [...article dicts...]}
 """
-# scraper.py
 
-# ... (after the RSS_FEEDS_BY_INDUSTRY dictionary) ...
+import os
+import json
+import time
+import requests
+import random
+from datetime import datetime, timedelta, timezone
+from bs4 import BeautifulSoup
+import feedparser
+from dateutil import parser as dateparser
+from urllib.parse import quote_plus
 
-# --- NEW: Data for dummy mentions ---
+# --- Data for dummy mentions ---
 DUMMY_FIRST_NAMES = ['John', 'Sarah', 'Mike', 'Emily', 'David', 'Jessica', 'Chris', 'Amanda', 'Matt', 'Laura', 'James', 'Anna']
 DUMMY_LAST_INITIALS = ['K.', 'S.', 'D.', 'M.', 'P.', 'R.', 'W.', 'B.', 'G.', 'T.']
 
@@ -60,24 +69,12 @@ DUMMY_TEMPLATES = {
     ]
 }
 
-
-import os
-import json
-import time
-import requests
-import random
-from datetime import datetime, timedelta
-from bs4 import BeautifulSoup
-import feedparser
-from dateutil import parser as dateparser
-from urllib.parse import quote_plus
-
-# Optional: create cache dir
+# --- Cache Setup ---
 CACHE_DIR = os.path.join(os.path.dirname(__file__), 'cache')
 os.makedirs(CACHE_DIR, exist_ok=True)
 CACHE_FILE = os.path.join(CACHE_DIR, 'scraper_cache.json')
 
-# Load env variables
+# --- Load env variables ---
 NEWSAPI_KEYS = []
 if os.getenv("NEWSAPI_KEYS"):
     NEWSAPI_KEYS = [k.strip() for k in os.getenv("NEWSAPI_KEYS").split(",") if k.strip()]
@@ -87,7 +84,7 @@ try:
 except Exception:
     CACHE_TTL_MINUTES = 15
 
-# Hardcoded authority & reach (can be expanded)
+# --- Hardcoded Metrics ---
 AUTHORITY_DICT = {
     'nytimes.com': 10,
     'washingtonpost.com': 9,
@@ -109,7 +106,7 @@ REACH_DICT = {
     # defaults to 10000
 }
 
-# Industry-aware RSS feeds (hardcoded; extend as needed)
+# --- Industry RSS Feeds ---
 RSS_FEEDS_BY_INDUSTRY = {
     'default': [
         'http://feeds.bbci.co.uk/news/rss.xml',
@@ -124,7 +121,7 @@ RSS_FEEDS_BY_INDUSTRY = {
     ],
     'finance': [
         'https://www.ft.com/?format=rss',
-        'https://www.bloomberg.com/feed/podcast/etf.xml',  # example
+        'https://www.bloomberg.com/feed/podcast/etf.xml', # example
         'https://www.cnbc.com/id/100003114/device/rss/rss.html'
     ],
     'healthcare': [
@@ -135,10 +132,10 @@ RSS_FEEDS_BY_INDUSTRY = {
         'https://www.retaildive.com/rss/all/',
         'https://www.forbes.com/retail/feed2/'
     ],
-    # more industries...
+    # 'Personal Brand' will use 'default'
 }
 
-# Utils
+# --- Utils ---
 def _cache_read():
     try:
         if not os.path.exists(CACHE_FILE):
@@ -164,14 +161,14 @@ def _is_cache_valid(entry_ts):
     return (time.time() - entry_ts) <= CACHE_TTL_MINUTES * 60
 
 def _parse_date_to_dt(datestr):
-    # attempts to parse many date formats; returns timezone-naive UTC-like datetime
+    # attempts to parse many date formats; returns timezone-aware datetime
     try:
         dt = dateparser.parse(datestr)
         if dt is None:
             return None
-        # make timezone-naive (compare in UTC-like manner)
-        if dt.tzinfo:
-            dt = dt.astimezone(tz=None).replace(tzinfo=None)
+        # make timezone-aware (assume UTC if naive)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
         return dt
     except Exception:
         return None
@@ -184,15 +181,16 @@ def _simple_domain_from_url(url):
     except Exception:
         return url
 
-# Dummy fallback generator (keeps your old behavior for social)
-# scraper.py
+# --- Scraper Functions ---
 
-# Dummy fallback generator (UPDATED)
-# scraper.py
-
-# ... (inside the generate_dummy_mentions function) ...
 def generate_dummy_mentions(brand, competitors, time_frame, source_type):
-    # ... (inside the for loop) ...
+    """
+    Generates realistic dummy social media mentions.
+    """
+    mentions = []
+    all_brands = [brand] + (competitors or [])
+    
+    for _ in range(random.randint(5, 15)):
         # Pick a random brand and user
         mentioned = random.choice(all_brands)
         user = f"{random.choice(DUMMY_FIRST_NAMES)} {random.choice(DUMMY_LAST_INITIALS)}"
@@ -201,34 +199,30 @@ def generate_dummy_mentions(brand, competitors, time_frame, source_type):
         sentiment_type = random.choice(list(DUMMY_TEMPLATES.keys()))
         template = random.choice(DUMMY_TEMPLATES[sentiment_type])
         
-        # --- CHANGE 1: Remove @user from the text ---
         text = f"{template.format(brand=mentioned)}"
 
-        # --- CHANGE 2: Define source and link as requested ---
+        # Define source and link as requested
         social_links = {
             'fb': 'https://www.facebook.com',
             'ig': 'https://www.instagram.com',
             'threads': 'https://www.threads.net'
         }
-        # The source is now the user's name + platform
         source = f"{user} ({source_type})"
-        # The link is now the base URL for the platform
         link = social_links.get(source_type, 'https://socialmedia.com')
-        # --- END CHANGES ---
 
         date_dt = datetime.now(timezone.utc) - timedelta(hours=random.randint(1, time_frame))
         date = date_dt.isoformat()
         
-        likes = random.randint(10, 1000) if source_type != 'news' else 0
-        comments = random.randint(1, 100) if source_type != 'news' else 0
-        authority = random.randint(1, 10)
+        likes = random.randint(10, 1000)
+        comments = random.randint(1, 100)
+        authority = random.randint(1, 3) # Low authority for dummy social
         reach = random.randint(1000, 100000)
         
         mentions.append({
             'text': text,
-            'source': source,      # UPDATED
+            'source': source,
             'date': date,
-            'link': link,          # UPDATED
+            'link': link,
             'mentioned_brands': [mentioned],
             'authority': authority,
             'reach': reach,
@@ -237,34 +231,39 @@ def generate_dummy_mentions(brand, competitors, time_frame, source_type):
         })
     return mentions
 
-# NewsAPI integration with key rotation
 def fetch_newsapi(brand, time_frame_hours, competitors, newsapi_keys=None):
+    """
+    Fetches news from NewsAPI with key rotation.
+    """
     if newsapi_keys is None:
         newsapi_keys = NEWSAPI_KEYS
     if not newsapi_keys:
         return []
-    # Prepare time window (strict hour-based)
-    to_dt = datetime.utcnow()
+        
+    to_dt = datetime.now(timezone.utc)
     from_dt = to_dt - timedelta(hours=time_frame_hours)
-    # NewsAPI expects ISO format
-    from_iso = from_dt.isoformat(timespec='seconds') + 'Z'
-    to_iso = to_dt.isoformat(timespec='seconds') + 'Z'
+    
+    # NewsAPI free plan (on 'everything') only supports up to 30 days
+    # And on dev plan, 'from' can't be more than 30 days ago
+    max_from_dt = to_dt - timedelta(days=29)
+    if from_dt < max_from_dt:
+        from_dt = max_from_dt # Cap at 29-30 days ago
+
+    from_iso = from_dt.isoformat()
+    # to_iso = to_dt.isoformat() # 'to' is optional, defaults to now
 
     query_terms = [brand] + (competitors or [])
     q = " OR ".join([f'"{t}"' for t in query_terms if t])
 
-    # endpoints and params
     url = "https://newsapi.org/v2/everything"
     params = {
         'q': q,
         'from': from_iso,
-        'to': to_iso,
         'language': 'en',
         'pageSize': 100,
         'sortBy': 'publishedAt'
     }
 
-    # Try keys in rotation
     errors = []
     for key in newsapi_keys:
         headers = {'Authorization': key}
@@ -275,17 +274,23 @@ def fetch_newsapi(brand, time_frame_hours, competitors, newsapi_keys=None):
                 articles = payload.get('articles', [])
                 results = []
                 for art in articles:
-                    published = art.get('publishedAt') or art.get('published_at') or ''
+                    published = art.get('publishedAt') or ''
                     dt = _parse_date_to_dt(published)
                     if dt is None:
                         continue
-                    # strict hour check
+                        
+                    # We must re-check the date here b/c NewsAPI 'from' is not always exact
                     if dt < from_dt:
                         continue
-                    source_name = (art.get('source') or {}).get('name') or art.get('source') or 'newsapi'
+                        
+                    source_name = (art.get('source') or {}).get('name') or 'newsapi'
                     domain = _simple_domain_from_url(art.get('url') or source_name)
                     text = (art.get('title') or '') + ' ' + (art.get('description') or '')
                     mentioned_brands = [b for b in [brand] + (competitors or []) if b.lower() in text.lower()]
+                    
+                    if not mentioned_brands: # Skip if no brand is mentioned
+                        continue
+
                     results.append({
                         'text': text.strip(),
                         'source': domain,
@@ -299,39 +304,46 @@ def fetch_newsapi(brand, time_frame_hours, competitors, newsapi_keys=None):
                     })
                 return results
             else:
-                # handle known rate limit or auth errors
                 errors.append({'key': key, 'status': resp.status_code, 'text': resp.text})
-                # try next key
         except Exception as e:
             errors.append({'key': key, 'exception': str(e)})
             continue
-    # If all keys failed, return empty and let caller fallback to RSS/Google
+    print(f"[NewsAPI Errors] {errors}")
     return []
 
-# RSS fetcher
 def fetch_rss_for_industry(industry, brand, time_frame_hours, competitors):
+    """
+    Fetches news from industry-specific RSS feeds.
+    """
     feeds = RSS_FEEDS_BY_INDUSTRY.get(industry, None) or RSS_FEEDS_BY_INDUSTRY.get(industry.lower(), None)
     if not feeds:
         feeds = RSS_FEEDS_BY_INDUSTRY.get('default', [])
+        
     mentions = []
-    cutoff = datetime.now() - timedelta(hours=time_frame_hours)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=time_frame_hours)
+    
     for feed_url in feeds:
         try:
             parsed = feedparser.parse(feed_url)
             for entry in parsed.entries:
-                datestr = entry.get('published') or entry.get('pubDate') or entry.get('updated') or entry.get('updated_parsed')
+                datestr = entry.get('published') or entry.get('pubDate') or entry.get('updated')
                 dt = _parse_date_to_dt(datestr) if datestr else None
+                
                 if dt is None:
-                    # skip if no parseable date
                     continue
                 if dt < cutoff:
                     continue
+                    
                 title = entry.get('title', '')
                 summary = entry.get('summary', '') or entry.get('description', '')
                 link = entry.get('link', '') or ''
                 text = (title + ' ' + BeautifulSoup(summary, 'html.parser').get_text()).strip()
                 domain = _simple_domain_from_url(link or feed_url)
+                
                 mentioned_brands = [b for b in [brand] + (competitors or []) if b.lower() in text.lower()]
+                if not mentioned_brands:
+                    continue
+                    
                 mentions.append({
                     'text': text,
                     'source': domain,
@@ -343,24 +355,19 @@ def fetch_rss_for_industry(industry, brand, time_frame_hours, competitors):
                     'likes': 0,
                     'comments': 0
                 })
-        except Exception:
+        except Exception as e:
+            print(f"[RSS Error] {feed_url} failed: {e}")
             continue
     return mentions
 
-# Google News HTML fallback (keeps older approach; may be brittle)
-# scraper.py
-
-# ... (other functions) ...
-
-# Google News HTML fallback (keeps older approach; may be brittle)
 def fetch_google_news_html(brand, time_frame_hours, competitors):
+    """
+    Fetches news from Google News HTML scrape as a fallback.
+    """
     try:
         query = f"{brand} OR {' OR '.join(competitors)}" if competitors else brand
         
-        # --- NEW TIME FILTER LOGIC ---
         # Map hours to Google's 'tbs' parameter (tbs=qdr:...)
-        # qdr:hX = last X hours
-        # qdr:dX = last X days
         time_filter = ""
         try:
             h = int(time_frame_hours)
@@ -372,25 +379,19 @@ def fetch_google_news_html(brand, time_frame_hours, competitors):
                 days = max(1, int(h / 24))
                 time_filter = f"qdr:d{days}"
         except Exception:
-            time_filter = "qdr:d" # Default to last 24 hours if something is wrong
+            time_filter = "qdr:d" # Default to last 24 hours
         
-        # --- UPDATED URL ---
         url = f"https://www.google.com/search?q={quote_plus(query)}&tbm=nws&hl=en&tbs={time_filter}"
         
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
-        # --- END OF UPDATE ---
-        
         resp = requests.get(url, headers=headers, timeout=10)
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, 'html.parser')
         mentions = []
         
-        # heuristic selectors (may change)
         items = soup.select("div.dbsr") or soup.select("g-card") or soup.select("div.SoaBEf")
-        
-        cutoff_dt = datetime.now() - timedelta(hours=time_frame_hours)
         
         for el in items:
             try:
@@ -401,21 +402,19 @@ def fetch_google_news_html(brand, time_frame_hours, competitors):
                 title_el = el.find('div', role='heading')
                 title = title_el.get_text(separator=' ').strip() if title_el else a_tag.get_text(separator=' ').strip()
 
-                # Try to find a date, though it's less reliable
                 date_el = el.find('div', role='text')
                 date_str = date_el.get_text().split('·')[-1].strip() if date_el else None
                 
-                # Use Google's time filter as the source of truth, but parse if available
-                dt = _parse_date_to_dt(date_str) if date_str else datetime.now()
+                dt = _parse_date_to_dt(date_str) if date_str else datetime.now(timezone.utc)
                 
                 domain = _simple_domain_from_url(link or 'news.google')
                 mentioned_brands = [b for b in [brand] + (competitors or []) if b.lower() in title.lower()]
                 
                 if mentioned_brands:
                     mentions.append({
-                        'text': title, # This is the headline
+                        'text': title,
                         'source': domain,
-                        'date': dt.isoformat(), # Best-effort date
+                        'date': dt.isoformat(),
                         'link': link,
                         'mentioned_brands': mentioned_brands,
                         'authority': AUTHORITY_DICT.get(domain, 5),
@@ -430,11 +429,6 @@ def fetch_google_news_html(brand, time_frame_hours, competitors):
         print(f"[Google News HTML Error] {e}")
         return []
 
-
-# scraper.py
-
-# ... (add this function after fetch_google_news_html) ...
-
 def fetch_reddit(brand, time_frame_hours, competitors):
     """
     Fetches real-time social mentions from Reddit.
@@ -442,10 +436,9 @@ def fetch_reddit(brand, time_frame_hours, competitors):
     try:
         query = f"{brand} OR {' OR '.join(competitors)}" if competitors else brand
         
-        # Map hours to Reddit's 't' parameter (hour, day, week, month, year)
         h = int(time_frame_hours)
         if h <= 2:
-            time_filter = 'hour' # Use 'hour' for very recent
+            time_filter = 'hour'
         elif h <= 24:
             time_filter = 'day'
         elif h <= 168:
@@ -455,7 +448,6 @@ def fetch_reddit(brand, time_frame_hours, competitors):
         else:
             time_filter = 'year'
 
-        # Use the .json endpoint for clean, reliable scraping
         url = f"https://www.reddit.com/search.json?q={quote_plus(query)}&sort=new&t={time_filter}"
         
         headers = {
@@ -467,42 +459,39 @@ def fetch_reddit(brand, time_frame_hours, competitors):
         payload = resp.json()
         mentions = []
         
-        # Get the strict UTC cutoff time
         cutoff_dt = datetime.now(timezone.utc) - timedelta(hours=time_frame_hours)
 
         for post in payload.get('data', {}).get('children', []):
             data = post.get('data', {})
             
-            # Strict time check using UTC timestamp
             created_utc = data.get('created_utc')
             if not created_utc:
                 continue
             dt = datetime.fromtimestamp(created_utc, tz=timezone.utc)
             
             if dt < cutoff_dt:
-                continue # Post is older than our precise timeframe
+                continue
             
             title = data.get('title', '')
             selftext = data.get('selftext', '')
-            text = (title + ' ' + selftext).strip() # Combine title and body
+            text = (title + ' ' + selftext).strip()
             link = "https://www.reddit.com" + data.get('permalink', '')
             domain = f"reddit.com/r/{data.get('subreddit', 'all')}"
 
-            # Check if any of our brands are actually in the text
             mentioned_brands = [b for b in [brand] + (competitors or []) if b.lower() in text.lower()]
             
             if not mentioned_brands:
-                continue # Skip if brand isn't in the text
+                continue
 
             mentions.append({
                 'text': text,
                 'source': domain,
-                'date': dt.isoformat(), # Use standard ISO format
+                'date': dt.isoformat(),
                 'link': link,
                 'mentioned_brands': mentioned_brands,
-                'authority': 4, # Reddit is user-gen, so lower authority
-                'reach': data.get('score', 0) * 10, # Estimate reach based on upvotes
-                'likes': data.get('score', 0), # 'likes' = upvotes
+                'authority': 4, 
+                'reach': data.get('score', 0) * 10,
+                'likes': data.get('score', 0),
                 'comments': data.get('num_comments', 0)
             })
         return mentions
@@ -510,12 +499,28 @@ def fetch_reddit(brand, time_frame_hours, competitors):
         print(f"[Reddit Scraper Error] {e}")
         return []
 
+# --- Public Interface ---
 
-# Public interface# scraper.py
-
-# ... (in the fetch_all function) ...
 def fetch_all(brand, time_frame, competitors=None, industry='default'):
-    # ... (cache logic) ...
+    """
+    Fetches all mentions from all sources.
+    Returns: {'mentions': [texts], 'full_data': [dicts]}
+    """
+    if competitors is None:
+        competitors = []
+    
+    # Use 'default' for 'Personal Brand'
+    if industry.lower() == 'personal brand':
+        industry = 'default'
+
+    cache = _cache_read()
+    cache_key = _get_cache_key(brand, time_frame, competitors)
+    cached_entry = cache.get(cache_key)
+    if cached_entry and _is_cache_valid(cached_entry.get('ts', 0)):
+        try:
+            return cached_entry['value']
+        except Exception:
+            pass 
 
     aggregated = []
     
@@ -524,73 +529,42 @@ def fetch_all(brand, time_frame, competitors=None, industry='default'):
         newsapi_results = fetch_newsapi(brand, time_frame, competitors, NEWSAPI_KEYS)
         if newsapi_results:
             aggregated.extend(newsapi_results)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[fetch_all NewsAPI Error] {e}")
 
     # 2) RSS (industry-aware)
     try:
         rss_results = fetch_rss_for_industry(industry or 'default', brand, time_frame, competitors)
         if rss_results:
             aggregated.extend(rss_results)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[fetch_all RSS Error] {e}")
 
     # 3) Google News HTML fallback
-    if len(aggregated) < 5: # Only run if other sources are weak
+    if len(aggregated) < 5:
         try:
             google_results = fetch_google_news_html(brand, time_frame, competitors)
             if google_results:
                 aggregated.extend(google_results)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[fetch_all Google News Error] {e}")
 
-    # --- ADD THIS NEW SECTION ---
     # 4) Reddit Search
     try:
         reddit_results = fetch_reddit(brand, time_frame, competitors)
         if reddit_results:
             aggregated.extend(reddit_results)
     except Exception as e:
-        print(f"[Reddit fetch_all error] {e}")
-        pass
-    # --- END OF NEW SECTION ---
+        print(f"[fetch_all Reddit Error] {e}")
 
-    # 5) Social sources (dummy for now)
+    # 5) Social sources (dummy)
     try:
         fb = generate_dummy_mentions(brand, competitors, time_frame, 'fb')
         ig = generate_dummy_mentions(brand, competitors, time_frame, 'ig')
         threads = generate_dummy_mentions(brand, competitors, time_frame, 'threads')
         aggregated.extend(fb + ig + threads)
-    except Exception:
-        pass
-    
-    # ... (rest of the function for normalization, caching, etc.) ...
-
-    # 2) RSS (industry-aware)
-    try:
-        rss_results = fetch_rss_for_industry(industry or 'default', brand, time_frame, competitors)
-        if rss_results:
-            aggregated.extend(rss_results)
-    except Exception:
-        pass
-
-    # 3) Google News HTML fallback if still few results
-    if len(aggregated) < 5:
-        try:
-            google_results = fetch_google_news_html(brand, time_frame, competitors)
-            if google_results:
-                aggregated.extend(google_results)
-        except Exception:
-            pass
-
-    # 4) Social sources (dummy for now)
-    try:
-        fb = generate_dummy_mentions(brand, competitors, time_frame, 'fb')
-        ig = generate_dummy_mentions(brand, competitors, time_frame, 'ig')
-        threads = generate_dummy_mentions(brand, competitors, time_frame, 'threads')
-        aggregated.extend(fb + ig + threads)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[fetch_all Dummy Error] {e}")
 
     # Normalize unique by link+text to avoid duplicates
     seen = set()
@@ -615,6 +589,9 @@ def fetch_all(brand, time_frame, competitors=None, industry='default'):
 
 # If module run directly for quick test
 if __name__ == "__main__":
+    print("Running scraper.py smoke test...")
     # quick smoke test (replace with actual keys in .env)
-    test = fetch_all("MyBrand", 24, ["Competitor1", "Competitor2"], industry='tech')
-    print(f"Found {len(test['full_data'])} mentions")
+    test = fetch_all("Nike", 24, ["Adidas", "Puma"], industry='tech')
+    print(f"Found {len(test['full_data'])} total mentions.")
+    for item in test['full_data']:
+        print(f" - [{item['source']}] {item['text'][:50]}...")

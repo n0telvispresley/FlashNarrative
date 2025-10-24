@@ -1,3 +1,4 @@
+# requirements.txt (make sure these are in the file)
 streamlit
 pandas
 plotly
@@ -16,3 +17,4 @@ parsel
 feedparser
 python-dateutil
 matplotlib
+boto3

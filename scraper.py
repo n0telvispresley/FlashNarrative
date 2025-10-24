@@ -35,7 +35,10 @@ DUMMY_TEMPLATES = {
         "Just got the new {brand} and I'm obsessed! Best purchase all year. 🔥",
         "Shoutout to {brand} for their amazing customer service. 10/10!",
         "I love my {brand}! It's awesome and works perfectly.",
-        "Honestly, {brand} is the best in the game. Highly recommend."
+        "Honestly, {brand} is the best in the game. Highly recommend.",
+        # --- THIS IS THE FIX ---
+        "The new {brand} Air Max Launch is fire! Just Do It! 🚀"
+        # --- END OF FIX ---
     ],
     'negative': [
         "My {brand} broke after just one week. So disappointed.",

@@ -437,25 +437,14 @@ def fetch_reddit(brand, time_frame_hours, competitors):
         return []
 
 
-# Public interface
-def fetch_all(brand, time_frame, competitors=None, industry='default'):
-    """
-    fetch_all(brand, time_frame(hours), competitors:list, industry:str) -> dict
-    Maintains compatibility with the dashboard: returns {'mentions': [texts], 'full_data': [...]}
-    """
-    if competitors is None:
-        competitors = []
+# Public interface# scraper.py
 
-    cache = _cache_read()
-    cache_key = _get_cache_key(brand, time_frame, competitors)
-    cached_entry = cache.get(cache_key)
-    if cached_entry and _is_cache_valid(cached_entry.get('ts', 0)):
-        try:
-            return cached_entry['value']
-        except Exception:
-            pass  # continue to fresh fetch
+# ... (in the fetch_all function) ...
+def fetch_all(brand, time_frame, competitors=None, industry='default'):
+    # ... (cache logic) ...
 
     aggregated = []
+    
     # 1) Primary: NewsAPI
     try:
         newsapi_results = fetch_newsapi(brand, time_frame, competitors, NEWSAPI_KEYS)
@@ -463,6 +452,45 @@ def fetch_all(brand, time_frame, competitors=None, industry='default'):
             aggregated.extend(newsapi_results)
     except Exception:
         pass
+
+    # 2) RSS (industry-aware)
+    try:
+        rss_results = fetch_rss_for_industry(industry or 'default', brand, time_frame, competitors)
+        if rss_results:
+            aggregated.extend(rss_results)
+    except Exception:
+        pass
+
+    # 3) Google News HTML fallback
+    if len(aggregated) < 5: # Only run if other sources are weak
+        try:
+            google_results = fetch_google_news_html(brand, time_frame, competitors)
+            if google_results:
+                aggregated.extend(google_results)
+        except Exception:
+            pass
+
+    # --- ADD THIS NEW SECTION ---
+    # 4) Reddit Search
+    try:
+        reddit_results = fetch_reddit(brand, time_frame, competitors)
+        if reddit_results:
+            aggregated.extend(reddit_results)
+    except Exception as e:
+        print(f"[Reddit fetch_all error] {e}")
+        pass
+    # --- END OF NEW SECTION ---
+
+    # 5) Social sources (dummy for now)
+    try:
+        fb = generate_dummy_mentions(brand, competitors, time_frame, 'fb')
+        ig = generate_dummy_mentions(brand, competitors, time_frame, 'ig')
+        threads = generate_dummy_mentions(brand, competitors, time_frame, 'threads')
+        aggregated.extend(fb + ig + threads)
+    except Exception:
+        pass
+    
+    # ... (rest of the function for normalization, caching, etc.) ...
 
     # 2) RSS (industry-aware)
     try:

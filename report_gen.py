@@ -43,21 +43,30 @@ def _create_sentiment_pie(sentiment_ratio):
     return buf
 
 # UPDATED function signature
+# report_gen.py
+
+# ... (imports) ...
+
+# ... (_create_sentiment_pie function) ...
+
+# timeframe_hours can now be an int (like 24) or a string (like "Last 7 days")
 def generate_report(kpis, top_keywords, full_articles_data, brand="Brand", competitors=None, timeframe_hours=24, include_json=False):
-    if competitors is None: competitors = []
     
-    sentiment_ratio = kpis.get('sentiment_ratio', {})
-    sov = kpis.get('sov', [])
-    all_brands = kpis.get('all_brands', [brand] + competitors) # Get brands from KPIs
-    mis = kpis.get('mis', 0)
-    mpi = kpis.get('mpi', 0)
-    engagement = kpis.get('engagement_rate', 0)
-    reach = kpis.get('reach', 0)
+    # ... (KPI setup) ...
     generated_on = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+
+    # --- THIS IS THE CHANGE ---
+    # Smartly format the time text
+    if isinstance(timeframe_hours, int):
+        time_text = f"the last {timeframe_hours} hours"
+    else:
+        time_text = timeframe_hours # It's already a string like "Last 30 days (Max)"
+    # --- END OF CHANGE ---
+
 
     # ---- Markdown Generation ----
     md_lines = [f"# Flash Narrative Report for {brand}",
-                f"*This report covers the last {timeframe_hours} hours.*",
+                f"*This report covers {time_text}.*", ,
                 f"**Generated on:** {generated_on}",
                 "\n## Key Performance Indicators",
                 f"- **Media Impact Score (MIS):** {mis}",
@@ -90,18 +99,14 @@ def generate_report(kpis, top_keywords, full_articles_data, brand="Brand", compe
 
     md = "\n".join(md_lines)
 
-    # ---- PDF Generation ----
-    pdf_buffer = io.BytesIO()
-    c = canvas.Canvas(pdf_buffer, pagesize=letter)
-    width, height = letter
-    margin_x = 50
-    y = height - 60
-    
+ # ---- PDF Generation ----
+    # ... (canvas setup) ...
     c.setFont("Helvetica-Bold", 18)
     c.drawString(margin_x, y, f"Flash Narrative Report — {brand}")
     y -= 28
     c.setFont("Helvetica", 10)
-    c.drawString(margin_x, y, f"Covers the last {timeframe_hours} hours. Generated on {generated_on}")
+    # --- USE THE NEW time_text VARIABLE ---
+    c.drawString(margin_x, y, f"This report covers {time_text}. Generated on {generated_on}") # <-- UPDATED
     y -= 24
 
     # KPI block

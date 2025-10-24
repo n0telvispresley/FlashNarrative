@@ -31,7 +31,7 @@ def get_bedrock_client():
         return None # Return None if client fails to init
 
 # Use the most powerful model
-MODEL_ID = "global.anthropic.claude-sonnet-4-20250514-v1:0"
+MODEL_ID = "meta.llama3-70b-instruct-v1:0"
 
 def get_llm_sentiment(text_chunk):
     """

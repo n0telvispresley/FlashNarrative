@@ -2,8 +2,8 @@ import nltk
 from nltk.probability import FreqDist
 from collections import Counter
 import re
+from datetime import datetime, timedelta
 
-# Download NLTK resources if needed
 nltk.download('punkt_tab', quiet=True)
 
 def analyze_sentiment(mentions):
@@ -43,39 +43,57 @@ def analyze_sentiment(mentions):
     counts = Counter(tones)
     return counts, tones
 
-def extract_keywords(all_text):
+def extract_keywords(all_text, top_n=10):
     """
-    Extract top 10 keywords/themes using NLTK.
+    Extract top keywords/themes using NLTK.
     Returns: list of (word, freq) tuples.
     """
     tokens = nltk.word_tokenize(all_text.lower())
-    # Filter out short words and punctuation
     tokens = [t for t in tokens if len(t) > 3 and t.isalpha()]
     freq_dist = FreqDist(tokens)
-    return freq_dist.most_common(10)
+    return freq_dist.most_common(top_n)
 
-def compute_kpis(full_data, tones, campaign_messages, industry):
+def filter_by_hours(full_data, hours):
     """
-    Compute PR KPIs based on scraped data.
-    Returns: dict of KPIs.
-    Assumes full_data is list of dicts with 'mentioned_brands', 'authority', 'reach', 'likes', 'comments', 'text', 'source'.
-    tones: list of sentiments per mention.
+    Strict hour-based filtering.
+    Only include mentions within the last `hours` hours.
     """
+    cutoff = datetime.now() - timedelta(hours=hours)
+    filtered = []
+    for item in full_data:
+        try:
+            item_time = datetime.strptime(item['date'], "%Y-%m-%d %H:%M")
+            if item_time >= cutoff:
+                filtered.append(item)
+        except Exception:
+            # Keep if date parsing fails
+            filtered.append(item)
+    return filtered
+
+def compute_kpis(full_data, tones, campaign_messages, industry, hours=None, brand=None):
+    """
+    Compute PR KPIs.
+    Returns dict including small brand sentiment summary.
+    """
+    if hours:
+        full_data = filter_by_hours(full_data, hours)
+        tones = [item['sentiment'] for item in full_data]
+
     total_mentions = len(full_data)
     if total_mentions == 0:
-        return {'sentiment_ratio': {}, 'sov': [], 'mis': 0, 'mpi': 0, 'engagement_rate': 0, 'reach': 0}
+        return {'sentiment_ratio': {}, 'sov': [], 'mis': 0, 'mpi': 0,
+                'engagement_rate': 0, 'reach': 0, 'small_brand_sentiment': 0}
 
-    # Add sentiment to full_data for convenience
+    # Attach sentiment to data
     for i, item in enumerate(full_data):
         item['sentiment'] = tones[i]
 
-    # Get unique brands (brand + competitors)
     all_brands = set()
     for item in full_data:
         all_brands.update(item['mentioned_brands'])
     all_brands = list(all_brands)
 
-    # SOV: mentions per brand / total mention counts (allowing multi-brand)
+    # SOV
     brand_counts = {b: 0 for b in all_brands}
     for item in full_data:
         for b in item['mentioned_brands']:
@@ -83,30 +101,35 @@ def compute_kpis(full_data, tones, campaign_messages, industry):
     total_brand_mentions = sum(brand_counts.values())
     sov = [brand_counts.get(b, 0) / total_brand_mentions * 100 if total_brand_mentions > 0 else 0 for b in all_brands]
 
-    # Sentiment Ratio: % of each tone overall
+    # Sentiment ratio
     counts = Counter(tones)
     sentiment_ratio = {tone: count / total_mentions * 100 for tone, count in counts.items()}
 
-    # MIS: sum authority for positive mentions
+    # MIS
     mis = sum(item['authority'] for item in full_data if item['sentiment'] == 'positive')
 
-    # MPI: average matches of campaign messages in mentions
+    # MPI
     matches = 0
     for item in full_data:
         text_lower = item['text'].lower()
         matches += sum(1 for msg in campaign_messages if msg.lower() in text_lower)
     mpi = matches / total_mentions if total_mentions > 0 else 0
 
-    # Engagement Rate: avg (likes + comments) for social sources
+    # Engagement rate
     social_sources = ['fb', 'ig', 'threads']
     social_mentions = [item for item in full_data if any(s in item['source'] for s in social_sources)]
-    if social_mentions:
-        engagement_rate = sum((item['likes'] + item['comments']) for item in social_mentions) / len(social_mentions)
-    else:
-        engagement_rate = 0
+    engagement_rate = sum((item['likes'] + item['comments']) for item in social_mentions) / len(social_mentions) if social_mentions else 0
 
-    # Reach/Impressions: sum estimates overall
+    # Reach
     reach = sum(item['reach'] for item in full_data)
+
+    # Small brand sentiment (positive - negative %)
+    small_brand_sentiment = 0
+    if brand and brand in brand_counts:
+        pos = sum(1 for item in full_data if brand in item['mentioned_brands'] and item['sentiment'] == 'positive')
+        neg = sum(1 for item in full_data if brand in item['mentioned_brands'] and item['sentiment'] == 'negative')
+        total = pos + neg
+        small_brand_sentiment = (pos / total * 100 - neg / total * 100) if total > 0 else 0
 
     return {
         'sentiment_ratio': sentiment_ratio,
@@ -114,5 +137,6 @@ def compute_kpis(full_data, tones, campaign_messages, industry):
         'mis': mis,
         'mpi': mpi,
         'engagement_rate': engagement_rate,
-        'reach': reach
+        'reach': reach,
+        'small_brand_sentiment': small_brand_sentiment
     }

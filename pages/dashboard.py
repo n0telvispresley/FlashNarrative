@@ -11,10 +11,10 @@ from email.mime.text import MIMEText
 from slack_sdk import WebClient
 
 try:
-    from flashnarrative.scraper import fetch_all
-    from flashnarrative.analysis import analyze_sentiment, compute_kpis
-    from flashnarrative.report_gen import generate_report
-    from flashnarrative.servicenow_integration import create_servicenow_ticket
+    from FlashNarrative.scraper import fetch_all
+    from FlashNarrative.analysis import analyze_sentiment, compute_kpis
+    from FlashNarrative.report_gen import generate_report
+    from FlashNarrative.servicenow_integration import create_servicenow_ticket
 except ImportError as e:
     st.error(f"Failed to import modules: {e}. Check if scraper.py, analysis.py, report_gen.py, and servicenow_integration.py are in the root directory.")
     st.stop()

@@ -8,18 +8,20 @@ from dateutil import parser as dateparser # Import this
 
 nltk.download('punkt', quiet=True)
 
-# -----------------------------------------------------------------
-# --- DELETE THE OLD analyze_sentiment FUNCTION. IT'S GONE. ---
-# --- WE NOW DO SENTIMENT IN dashboard.py using bedrock.py ---
-# -----------------------------------------------------------------
+stop_words = set(['the', 'is', 'a', 'to', 'and', 'in', 'it', 'for', 'of', 'i', 's', 'your', 'com', 'www', 'http', 'https', 'co', 'uk'])
+
 
 def extract_keywords(all_text, top_n=10):
     tokens = nltk.word_tokenize(all_text.lower())
-    # Keep stopwords for a hackathon, but filter short/non-alpha
-    stop_words = set(['the', 'is', 'a', 'to', 'and', 'in', 'it', 'for', 'of', 'i', 's', 'your', 'brandx']) # Add brand to filter
+    
+    # --- DELETE THIS LINE from inside the function ---
+    # stop_words = set(['the', 'is', 'a', 'to', 'and', 'in', 'it', 'for', 'of', 'i', 's', 'your', 'brandx']) 
+    
+    # This line now correctly uses the global 'stop_words' list
     tokens = [t for t in tokens if len(t) > 3 and t.isalpha() and t not in stop_words]
     freq_dist = FreqDist(tokens)
     return freq_dist.most_common(top_n)
+
 
 def filter_by_hours(full_data, hours):
     """

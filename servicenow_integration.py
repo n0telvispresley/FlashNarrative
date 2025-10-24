@@ -1,6 +1,3 @@
-Got it. Here's the corrected `servicenow_integration.py` file with the `st.error` lines removed.
-
-```python
 # servicenow_integration.py
 import os
 import requests
@@ -147,4 +144,3 @@ def send_report_email_with_attachments(to_email, subject, body, attachments):
         # --- REMOVED st.error ---
         return False # Indicate failure
 # --- END OF FUNCTION ---
-```

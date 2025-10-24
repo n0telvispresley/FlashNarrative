@@ -1,4 +1,13 @@
 # dashboard.py
+import sys
+import os
+# Add the root directory (/mount/src/FlashNarrative/) to sys.path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# Debug: Print sys.path and working directory
+st.write(f"sys.path: {sys.path}")
+st.write(f"Working directory: {os.getcwd()}")
+st.write(f"Current file dir: {os.path.abspath(os.path.dirname(__file__))}")
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -11,10 +20,10 @@ from email.mime.text import MIMEText
 from slack_sdk import WebClient
 
 try:
-    from FlashNarrative.scraper import fetch_all
-    from FlashNarrative.analysis import analyze_sentiment, compute_kpis
-    from FlashNarrative.report_gen import generate_report
-    from FlashNarrative.servicenow_integration import create_servicenow_ticket
+    from scraper import fetch_all
+    from analysis import analyze_sentiment, compute_kpis
+    from report_gen import generate_report
+    from servicenow_integration import create_servicenow_ticket
 except ImportError as e:
     st.error(f"Failed to import modules: {e}. Check if scraper.py, analysis.py, report_gen.py, and servicenow_integration.py are in the root directory.")
     st.stop()
@@ -116,8 +125,9 @@ if st.button("Refresh"):
     st.rerun()
 
 # Comments:
-# - Updated imports to use 'FlashNarrative' to match case-sensitive repository name.
-# - Assumes scraper.py, analysis.py, report_gen.py, and servicenow_integration.py are in the root directory.
+# - Added sys.path.append to include /mount/src/FlashNarrative/ in the search path.
+# - Added debug output to inspect sys.path and working directory.
+# - Uses direct imports (from scraper import fetch_all) to avoid package naming issues.
 # - All features (KPIs, charts, PDF, alerts) included.
 # - Mock alerts print to console if creds missing.
 # - Use with updated requirements.txt.

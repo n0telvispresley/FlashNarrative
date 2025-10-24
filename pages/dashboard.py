@@ -13,7 +13,7 @@ from email.mime.text import MIMEText
 from slack_sdk import WebClient
 
 # Clean sys.path to remove duplicates and add project root
-sys.path = list(dict.fromkeys(sys.path))  # Remove duplicates
+sys.path = list(dict.fromkeys(sys.path))
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 # Debug: Print sys.path and working directory
@@ -40,53 +40,38 @@ def list_directory(path, indent=""):
 structure = list_directory(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 st.write("\n".join(structure))
 
-# Debug: Test module imports and function existence
+# Module import status
 module_status = {}
 try:
     from scraper import fetch_all
     st.write("scraper.py: fetch_all imported successfully")
     module_status["scraper"] = True
-except SyntaxError as e:
-    st.error(f"SyntaxError in scraper.py: {e}")
-    try:
-        with open(os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')), 'scraper.py'), 'r') as f:
-            lines = f.readlines()
-            error_line = lines[e.lineno - 1] if e.lineno <= len(lines) else "Unknown"
-            st.error(f"Error at line {e.lineno}: {error_line.strip()}")
-    except Exception as read_error:
-        st.error(f"Could not read scraper.py: {read_error}")
-    st.error(f"Full traceback: {traceback.format_exc()}")
-    module_status["scraper"] = False
-except ImportError as e:
-    st.error(f"ImportError in scraper.py: {e}")
-    module_status["scraper"] = False
 except Exception as e:
-    st.error(f"Unexpected error in scraper.py: {e}")
-    st.error(f"Full traceback: {traceback.format_exc()}")
+    st.error(f"Error importing scraper.py: {e}")
     module_status["scraper"] = False
 
 try:
     from analysis import analyze_sentiment, compute_kpis, extract_keywords
-    st.write("analysis.py: analyze_sentiment, compute_kpis, extract_keywords imported successfully")
+    st.write("analysis.py imported successfully")
     module_status["analysis"] = True
 except Exception as e:
-    st.error(f"Failed to import analyze_sentiment, compute_kpis, or extract_keywords from analysis.py: {e}")
+    st.error(f"Error importing analysis.py: {e}")
     module_status["analysis"] = False
 
 try:
     from report_gen import generate_report
-    st.write("report_gen.py: generate_report imported successfully")
+    st.write("report_gen.py imported successfully")
     module_status["report_gen"] = True
 except Exception as e:
-    st.error(f"Failed to import generate_report from report_gen.py: {e}")
+    st.error(f"Error importing report_gen.py: {e}")
     module_status["report_gen"] = False
 
 try:
     from servicenow_integration import create_servicenow_ticket
-    st.write("servicenow_integration.py: create_servicenow_ticket imported successfully")
+    st.write("servicenow_integration.py imported successfully")
     module_status["servicenow_integration"] = True
 except Exception as e:
-    st.error(f"Failed to import create_servicenow_ticket from servicenow_integration.py: {e}")
+    st.error(f"Error importing servicenow_integration.py: {e}")
     module_status["servicenow_integration"] = False
 
 # Initialize NLTK
@@ -101,22 +86,15 @@ if not st.session_state.get('logged_in', False):
     st.error("Please log in first.")
     st.switch_page("pages/landing.py")
 
-# Initialize session state
-if 'data' not in st.session_state:
-    st.session_state['data'] = None
-if 'kpis' not in st.session_state:
-    st.session_state['kpis'] = None
-if 'top_keywords' not in st.session_state:
-    st.session_state['top_keywords'] = []
-if 'md' not in st.session_state:
-    st.session_state['md'] = ""
-if 'pdf_bytes' not in st.session_state:
-    st.session_state['pdf_bytes'] = b""
+# Session state
+if 'data' not in st.session_state: st.session_state['data'] = None
+if 'kpis' not in st.session_state: st.session_state['kpis'] = None
+if 'top_keywords' not in st.session_state: st.session_state['top_keywords'] = []
+if 'md' not in st.session_state: st.session_state['md'] = ""
+if 'pdf_bytes' not in st.session_state: st.session_state['pdf_bytes'] = b""
 
 # Dashboard UI
 st.title("Flash Narrative Dashboard")
-
-# Inputs
 brand = st.text_input("Brand Name", value="MyBrand")
 time_frame = st.slider("Time Frame (hours)", 1, 48, 24)
 industry = st.selectbox("Industry", ["Tech", "Finance", "Healthcare", "Retail"])
@@ -129,37 +107,34 @@ if st.button("Analyze"):
         st.error("Cannot analyze: scraper.py or analysis.py failed to import.")
     else:
         try:
-            # Fetch data
             data = fetch_all(brand, time_frame, competitors)
             st.session_state['data'] = data
             
-            # Analyze sentiment
             mentions = [item['text'] for item in data['full_data']]
             sentiments, tones = analyze_sentiment(mentions)
-            
-            # Extract keywords
-            all_text = ' '.join(mentions)
-            st.session_state['top_keywords'] = extract_keywords(all_text)
+            st.session_state['top_keywords'] = extract_keywords(' '.join(mentions))
             
             # Compute KPIs
             kpis = compute_kpis(
-                data['full_data'], 
-                tones, 
-                [msg.strip() for msg in campaign_messages.split(',')], 
+                data['full_data'],
+                tones,
+                [msg.strip() for msg in campaign_messages.split(',')],
                 industry,
                 hours=time_frame,
                 brand=brand
             )
             st.session_state['kpis'] = kpis
-            
+
             # Alerts
-            if module_status.get("servicenow_integration", False) and (kpis['sentiment_ratio'].get('negative', 0) > 50 or any('nytimes.com' in m['source'] for m in data['full_data'] if m.get('sentiment') == 'negative')):
-                try:
-                    create_servicenow_ticket("PR Crisis Alert", "Negative spike or high-priority mention detected.")
-                    st.success("Alert sent (check console for mock).")
-                except Exception as e:
-                    st.error(f"Alert failed: {e}")
-            
+            if module_status.get("servicenow_integration", False):
+                neg_ratio = kpis['sentiment_ratio'].get('negative', 0)
+                if neg_ratio > 50 or any('nytimes.com' in m['source'] for m in data['full_data'] if m.get('sentiment') == 'negative'):
+                    try:
+                        create_servicenow_ticket("PR Crisis Alert", "Negative spike or high-priority mention detected.")
+                        st.success("Alert sent (check console for mock).")
+                    except Exception as e:
+                        st.error(f"Alert failed: {e}")
+
             st.success("Analysis complete!")
         except Exception as e:
             st.error(f"Analysis error: {e}")
@@ -168,16 +143,17 @@ if st.button("Analyze"):
 if st.session_state['kpis']:
     kpis = st.session_state['kpis']
     col1, col2 = st.columns(2)
-    
+
     with col1:
         sentiment_df = pd.DataFrame(list(kpis['sentiment_ratio'].items()), columns=['Tone', 'Percentage'])
-        fig_pie = px.pie(sentiment_df, values='Percentage', names='Tone', title='Sentiment Ratio')
-        st.plotly_chart(fig_pie)
-        
-        sov_df = pd.DataFrame({'Brand': [brand] + competitors, 'SOV': kpis['sov']})
-        fig_bar = px.bar(sov_df, x='Brand', y='SOV', title='Share of Voice')
-        st.plotly_chart(fig_bar)
-    
+        st.plotly_chart(px.pie(sentiment_df, values='Percentage', names='Tone', title='Sentiment Ratio'))
+
+        # Use brand list stored in KPIs
+        brands = kpis.get('all_brands', [brand] + competitors)
+        sov_values = kpis.get('sov', [0]*len(brands))
+        sov_df = pd.DataFrame({'Brand': brands, 'SOV': sov_values})
+        st.plotly_chart(px.bar(sov_df, x='Brand', y='SOV', title='Share of Voice'))
+
     with col2:
         st.subheader("Key Metrics")
         st.metric("MIS", kpis['mis'])
@@ -185,11 +161,11 @@ if st.session_state['kpis']:
         st.metric("Engagement Rate", kpis['engagement_rate'])
         st.metric("Reach/Impressions", kpis['reach'])
         st.metric("Brand Sentiment", f"{kpis['small_brand_sentiment']:.2f}%")
-        
+
         st.subheader("Top Keywords")
         if st.session_state['top_keywords']:
             st.table(pd.DataFrame(st.session_state['top_keywords'], columns=['Keyword', 'Frequency']))
-    
+
 # PDF Report
 if st.button("Generate PDF Report"):
     if not module_status.get("report_gen", False):
@@ -197,9 +173,9 @@ if st.button("Generate PDF Report"):
     else:
         try:
             md, pdf_bytes = generate_report(
-                kpis, 
-                st.session_state['top_keywords'], 
-                brand, 
+                kpis,
+                st.session_state['top_keywords'],
+                brand,
                 competitors
             )
             st.session_state['md'] = md
@@ -222,13 +198,3 @@ if st.button("Refresh"):
     st.session_state['md'] = ""
     st.session_state['pdf_bytes'] = b""
     st.experimental_rerun()
-
-# Comments:
-# - Fixed NameError by storing top_keywords in st.session_state.
-# - Used extract_keywords from analysis.py instead of duplicating NLTK logic.
-# - Updated NLTK to use punkt_tab and set NLTK_DATA path.
-# - Cleaned sys.path to remove duplicates.
-# - Persisted md and pdf_bytes in session_state for PDF generation.
-# - Ensured scraper.py output is accessed correctly (assumes 'full_data' key).
-# - Maintained debug output and directory listing.
-# - Use with updated requirements.txt and fixed servicenow_integration.py.

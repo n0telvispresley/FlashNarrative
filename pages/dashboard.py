@@ -1,4 +1,5 @@
 # dashboard.py
+import streamlit as st
 import sys
 import os
 # Add the root directory (/mount/src/FlashNarrative/) to sys.path
@@ -8,7 +9,6 @@ st.write(f"sys.path: {sys.path}")
 st.write(f"Working directory: {os.getcwd()}")
 st.write(f"Current file dir: {os.path.abspath(os.path.dirname(__file__))}")
 
-import streamlit as st
 import pandas as pd
 import plotly.express as px
 import nltk
@@ -125,8 +125,9 @@ if st.button("Refresh"):
     st.rerun()
 
 # Comments:
-# - Added sys.path.append to include /mount/src/FlashNarrative/ in the search path.
-# - Added debug output to inspect sys.path and working directory.
+# - Moved 'import streamlit as st' to the top to fix NameError.
+# - Kept sys.path.append to include /mount/src/FlashNarrative/ in the search path.
+# - Retained debug output to inspect sys.path and working directory.
 # - Uses direct imports (from scraper import fetch_all) to avoid package naming issues.
 # - All features (KPIs, charts, PDF, alerts) included.
 # - Mock alerts print to console if creds missing.

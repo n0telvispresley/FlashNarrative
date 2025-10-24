@@ -11,13 +11,29 @@ from email.mime.text import MIMEText
 from slack_sdk import WebClient
 
 try:
-    from src.flashnarrative.scraper import fetch_all
-    from src.flashnarrative.analysis import analyze_sentiment, compute_kpis
-    from src.flashnarrative.report_gen import generate_report
-    from src.flashnarrative.servicenow_integration import create_servicenow_ticket
+    from flashnarrative.scraper import fetch_all
+    from flashnarrative.analysis import analyze_sentiment, compute_kpis
+    from flashnarrative.report_gen import generate_report
+    from flashnarrative.servicenow_integration import create_servicenow_ticket
 except ImportError as e:
     st.error(f"Failed to import modules: {e}. Check if scraper.py, analysis.py, report_gen.py, and servicenow_integration.py are in the root directory.")
     st.stop()
+
+# Rest of your code remains unchanged
+# Initialize NLTK
+try:
+    nltk.download('punkt', quiet=True)
+except Exception as e:
+    st.warning(f"NLTK setup failed: {e}")
+
+# Check login
+if not st.session_state.get('logged_in', False):
+    st.error("Please log in first.")
+    st.switch_page("pages/landing.py")
+
+# Dashboard UI
+st.title("Flash Narrative Dashboard")
+# ... (rest of your code)
 
 # Initialize NLTK
 try:

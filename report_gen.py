@@ -1,4 +1,3 @@
-```python
 import io
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -86,8 +85,3 @@ def generate_report(kpis, top_keywords, brand="Brand", competitors=[]):
     pdf_buffer.close()
 
     return md, pdf_bytes
-
-# Comments: Professional white-label template; MD for preview, PDF for download.
-# Under 80 lines: Focused on core sections; expand as needed.
-# Integrate in dashboard: md, pdf_bytes = generate_report(st.session_state['kpis'], top_keywords, brand, competitors)
-```

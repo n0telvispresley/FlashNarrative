@@ -4,6 +4,7 @@ import pandas as pd
 import plotly.express as px
 import traceback
 from dotenv import load_dotenv
+import io # <-- IMPORT IO FOR EXCEL
 
 # --- IMPORTANT: Use relative imports from the root ---
 # Load .env first, *then* import other modules
@@ -12,14 +13,14 @@ try:
     from .. import analysis
     from .. import report_gen
     from .. import scraper
-    from .. import bedrock 
+    from .. import bedrock as bedrock_llm # Use alias for clarity
     from .. import servicenow_integration
 except ImportError:
     # Fallback for when script is run directly (less ideal)
     import analysis
     import report_gen
     import scraper
-    import bedrock 
+    import bedrock as bedrock_llm # Use alias for clarity
     import servicenow_integration
 
 
@@ -32,12 +33,12 @@ def run_analysis(brand, time_range_text, hours, competitors, industry, campaign_
         # 1. Scrape Data
         with st.spinner(f"Scraping the web for '{brand}' ({time_range_text})..."):
             scraped_data = scraper.fetch_all(
-                brand=brand, 
+                brand=brand,
                 time_frame=hours,
-                competitors=competitors, 
+                competitors=competitors,
                 industry=industry
             )
-        
+
         if not scraped_data['full_data']:
             st.warning("No mentions found. Try a broader timeframe or different keywords.")
             st.stop()
@@ -46,11 +47,12 @@ def run_analysis(brand, time_range_text, hours, competitors, industry, campaign_
         with st.spinner("Running AI sentiment analysis on results..."):
             temp_data = scraped_data['full_data']
             progress_bar = st.progress(0, text="Analyzing sentiment...")
-            
+
             for i, item in enumerate(temp_data):
-                item['sentiment'] = bedrock.get_llm_sentiment(item.get('text', ''))
+                # Use bedrock_llm alias here
+                item['sentiment'] = bedrock_llm.get_llm_sentiment(item.get('text', ''))
                 progress_bar.progress((i + 1) / len(temp_data), text=f"Analyzing: {item['text'][:50]}...")
-            
+
             progress_bar.empty()
             st.session_state.full_data = temp_data # Save processed data
 
@@ -63,17 +65,19 @@ def run_analysis(brand, time_range_text, hours, competitors, industry, campaign_
                 hours=hours,
                 brand=brand
             )
-        
+
         # 4. Extract Keywords
         all_text = " ".join([item["text"] for item in st.session_state.full_data])
-        analysis.stop_words.add(brand.lower())
-        for c in competitors:
-            analysis.stop_words.add(c.lower())
-            
+        # Ensure stop_words exists before adding
+        if hasattr(analysis, 'stop_words') and isinstance(analysis.stop_words, set):
+             analysis.stop_words.add(brand.lower())
+             for c in competitors:
+                 analysis.stop_words.add(c.lower())
+
         st.session_state.top_keywords = analysis.extract_keywords(all_text, top_n=10)
 
         st.success("Analysis complete!")
-        
+
         # 5. Check for Alerts
         sentiment_ratio = st.session_state.kpis.get('sentiment_ratio', {})
         neg_pct = sentiment_ratio.get('negative', 0) + sentiment_ratio.get('anger', 0)
@@ -98,7 +102,7 @@ def display_dashboard(brand, competitors, time_range_text):
     # --- Display KPIs ---
     st.subheader("Key Performance Indicators")
     kpis = st.session_state.kpis
-    
+
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Media Impact (MIS)", f"{kpis.get('mis', 0):.0f}")
     col2.metric("Message Penetration (MPI)", f"{kpis.get('mpi', 0):.1f}%")
@@ -110,7 +114,7 @@ def display_dashboard(brand, competitors, time_range_text):
     chart_col1, chart_col2 = st.columns(2)
 
     with chart_col1:
-        # Sentiment Pie
+        # Sentiment Pie (Doughnut)
         sentiment_ratio = kpis.get("sentiment_ratio", {})
         if sentiment_ratio:
             pie_data = pd.DataFrame({
@@ -122,12 +126,8 @@ def display_dashboard(brand, competitors, time_range_text):
                 'neutral': 'grey', 'mixed': 'orange',
                 'negative': 'red', 'anger': 'darkred'
             }
-            
-            # --- THIS IS THE FIX: Added 'hole=0.4' ---
             fig = px.pie(pie_data, names='Sentiment', values='Percent', title="AI Sentiment Distribution",
                          color='Sentiment', color_discrete_map=color_map, hole=0.4)
-            # --- END OF FIX ---
-            
             st.plotly_chart(fig, use_container_width=True)
         else:
             st.write("No sentiment data to display.")
@@ -136,7 +136,7 @@ def display_dashboard(brand, competitors, time_range_text):
         # SOV Bar Chart
         all_brands = kpis.get("all_brands", [brand] + competitors)
         sov_values = kpis.get("sov", [0] * len(all_brands))
-        
+
         sov_df = pd.DataFrame({'Brand': all_brands, 'Share of Voice (%)': sov_values})
         fig_sov = px.bar(sov_df, x='Brand', y='Share of Voice (%)', title="Share of Voice (SOV)",
                          color='Brand')
@@ -168,7 +168,7 @@ def display_dashboard(brand, competitors, time_range_text):
                     'Mention': item.get('text', '')[:100] + "...",
                     'Link': item.get('link', '#')
                 })
-            
+
             st.dataframe(
                 pd.DataFrame(display_data),
                 column_config={
@@ -179,41 +179,103 @@ def display_dashboard(brand, competitors, time_range_text):
             )
         else:
             st.write("No mentions to display.")
-            
+
     # --- Report Generation ---
     st.subheader("Generate Report")
-    if st.button("Generate PDF Report", use_container_width=True):
-        with st.spinner("Building your PDF report..."):
-            try:
-                md, pdf_bytes = report_gen.generate_report(
-                    kpis=st.session_state.kpis,
-                    top_keywords=st.session_state.top_keywords,
-                    full_articles_data=st.session_state.full_data,
-                    brand=brand,
-                    competitors=competitors,
-                    timeframe_hours=time_range_text, # Pass "Last 7 days"
-                    include_json=False
-                )
-                
-                st.download_button(
-                    "Download PDF Report", 
-                    data=pdf_bytes, 
-                    file_name=f"{brand}_FlashNarrative_Report.pdf", 
-                    mime="application/pdf",
-                    use_container_width=True
-                )
-                
-                with st.expander("View AI Summary & Recommendations", expanded=True):
-                    ai_summary = bedrock.generate_llm_report_summary(
-                        st.session_state.kpis, 
-                        st.session_state.top_keywords, 
-                        st.session_state.full_data, 
-                        brand
-                    )
-                    st.markdown(ai_summary)
+    # Use columns for side-by-side download buttons
+    pdf_col, excel_col = st.columns(2)
 
-            except Exception:
-                st.error("Failed to generate PDF report:\n" + traceback.format_exc())
+    with pdf_col:
+        # Button to generate PDF (triggers the process)
+        if st.button("Generate PDF Summary Report", use_container_width=True, key="generate_pdf"):
+            with st.spinner("Building your PDF report..."):
+                try:
+                    # Check if data exists before generating
+                    if not st.session_state.kpis or not st.session_state.full_data:
+                        st.warning("Please run analysis first to generate data for the report.")
+                    else:
+                        md, pdf_bytes = report_gen.generate_report(
+                            kpis=st.session_state.kpis,
+                            top_keywords=st.session_state.top_keywords,
+                            full_articles_data=st.session_state.full_data,
+                            brand=brand,
+                            competitors=competitors,
+                            timeframe_hours=time_range_text,
+                            include_json=False
+                        )
+
+                        # Store PDF bytes in session state to enable download later
+                        st.session_state.pdf_report_bytes = pdf_bytes
+                        st.session_state.show_pdf_download = True
+
+                        # Display AI Summary immediately after generation
+                        with st.expander("View AI Summary & Recommendations", expanded=True):
+                            ai_summary = bedrock_llm.generate_llm_report_summary(
+                                 st.session_state.kpis,
+                                 st.session_state.top_keywords,
+                                 st.session_state.full_data,
+                                 brand
+                            )
+                            st.markdown(ai_summary)
+                        st.success("PDF Report Ready!")
+
+                except Exception:
+                    st.error("Failed to generate PDF report:\n" + traceback.format_exc())
+                    st.session_state.show_pdf_download = False # Hide button on error
+
+    # --- NEW: Excel File Generation & Download ---
+    with excel_col:
+        # Check if there's data to export
+        if st.session_state.full_data:
+            try:
+                # Prepare data for Excel
+                excel_data = []
+                for item in st.session_state.full_data:
+                    excel_data.append({
+                        'Date': item.get('date', 'N/A'), # Add Date
+                        'Sentiment': item.get('sentiment', 'N/A'),
+                        'Source': item.get('source', 'N/A'),
+                        'Mention Text': item.get('text', ''),
+                        'Link': item.get('link', '#'),
+                        'Likes': item.get('likes', 0), # Add Likes
+                        'Comments': item.get('comments', 0) # Add Comments
+                    })
+                df_excel = pd.DataFrame(excel_data)
+
+                # Convert DataFrame to Excel in memory
+                output = io.BytesIO()
+                # Requires: pip install openpyxl
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                     df_excel.to_excel(writer, index=False, sheet_name='Mentions')
+                excel_bytes = output.getvalue()
+
+                # Excel Download Button
+                st.download_button(
+                    label="Download All Mentions (Excel)",
+                    data=excel_bytes,
+                    file_name=f"{brand}_FlashNarrative_Mentions.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    key="excel_download"
+                )
+            except Exception as e:
+                 st.error(f"Failed to generate Excel file: {e}")
+                 st.button("Download All Mentions (Excel)", disabled=True, use_container_width=True, help="Error generating file.")
+
+        else:
+             # Disable button if no data
+             st.button("Download All Mentions (Excel)", disabled=True, use_container_width=True, help="Run analysis first to generate data.")
+
+    # --- Conditionally show PDF download button ---
+    if st.session_state.get('show_pdf_download', False) and st.session_state.get('pdf_report_bytes'):
+         st.download_button(
+             label="Download PDF Summary Report",
+             data=st.session_state.pdf_report_bytes,
+             file_name=f"{brand}_FlashNarrative_Report.pdf",
+             mime="application/pdf",
+             use_container_width=True,
+             key="pdf_download_final" # Use a different key
+         )
 
 def main():
     """
@@ -237,6 +299,12 @@ def main():
         st.session_state.kpis = {}
     if 'top_keywords' not in st.session_state:
         st.session_state.top_keywords = []
+    # Add state for PDF download button visibility
+    if 'show_pdf_download' not in st.session_state:
+        st.session_state.show_pdf_download = False
+    if 'pdf_report_bytes' not in st.session_state:
+        st.session_state.pdf_report_bytes = None
+
 
     # --- Inputs ---
     st.subheader("Monitoring Setup")
@@ -244,7 +312,7 @@ def main():
 
     with col_i1:
         brand = st.text_input("Enter your brand name", value="Nike")
-        
+
     with col_i2:
         competitors_input = st.text_input(
             "Enter competitors (comma-separated)",
@@ -287,7 +355,9 @@ def main():
         st.session_state.full_data = []
         st.session_state.kpis = {}
         st.session_state.top_keywords = []
-        
+        st.session_state.show_pdf_download = False # Hide download button on new run
+        st.session_state.pdf_report_bytes = None
+
         run_analysis(brand, time_range_text, hours, competitors, industry, campaign_messages)
 
     # --- Display Results ---

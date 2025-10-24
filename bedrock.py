@@ -30,7 +30,7 @@ def get_bedrock_client():
         return None
 
 # Use the most powerful model
-MODEL_ID = "anthropic.claude-3-opus-20240229-v1:0"
+MODEL_ID = "Amazon Titan Text G1 - Express (amazon.titan-text-express-v1)"
 
 def get_llm_sentiment(text_chunk):
     """

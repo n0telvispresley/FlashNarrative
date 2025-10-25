@@ -10,7 +10,6 @@ def get_bedrock_client():
     """Initializes and returns the Bedrock runtime client, caching the resource."""
     try:
         aws_region = os.getenv("AWS_REGION", "us-east-1") # Default region
-        # Ensure credentials are provided
         if not os.getenv("AWS_ACCESS_KEY_ID") or not os.getenv("AWS_SECRET_KEY"):
             st.error("AWS credentials (AWS_ACCESS_KEY_ID, AWS_SECRET_KEY) not found. Please set them in your .env file.")
             return None
@@ -20,8 +19,6 @@ def get_bedrock_client():
             region_name=aws_region,
             aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
             aws_secret_access_key=os.getenv("AWS_SECRET_KEY")
-            # You might need aws_session_token if using temporary credentials
-            # aws_session_token=os.getenv("AWS_SESSION_TOKEN")
         )
         print(f"Bedrock client initialized successfully for region {aws_region}.")
         return bedrock_client
@@ -33,6 +30,9 @@ def get_bedrock_client():
 # Define the models to try, in order of preference. Excludes Image models.
 PREFERRED_TEXT_MODELS = [
     "anthropic.claude-3-opus-20240229-v1:0",    # Highest Quality (Expensive)
+    # --- ADDED THE NEW MODEL ID HERE (CAVEAT: LIKELY INVALID) ---
+    "global.anthropic.claude-sonnet-4-20250514-v1:0",
+    # --- END ADDITION ---
     "anthropic.claude-3-sonnet-20240229-v1:0",   # Balanced
     "meta.llama3-70b-instruct-v1:0",           # Llama 3 70B
     "cohere.command-r-plus-v1:0",              # Cohere R+
@@ -58,19 +58,22 @@ def _parse_anthropic_response(response_body_json):
     content = response_body_json.get('content', [])
     if content and isinstance(content, list) and len(content) > 0:
         return content[0].get('text', '').strip()
-    return None # Indicate parsing failure
+    return None
 
 def _build_meta_llama_body(prompt, max_tokens=10, temperature=0.1):
     """Builds the JSON body for Meta Llama models."""
+    # Add instruction formatting for Llama 3 Instruct
+    # Reference: https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-meta.html
+    # Basic prompt might work, but this is more robust
+    formatted_prompt = f"<|begin_of_text|><|start_header_id|>user<|end_header_id|>\n\n{prompt}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
     return json.dumps({
-        "prompt": prompt,
-        "max_gen_len": max_tokens, # Llama uses max_gen_len
+        "prompt": formatted_prompt,
+        "max_gen_len": max_tokens,
         "temperature": temperature,
     })
 
 def _parse_meta_llama_response(response_body_json):
     """Parses the response from Meta Llama models."""
-    # Llama 3 might wrap the response differently
     return response_body_json.get('generation', '').strip()
 
 def _build_amazon_titan_body(prompt, max_tokens=10, temperature=0.1):
@@ -80,7 +83,7 @@ def _build_amazon_titan_body(prompt, max_tokens=10, temperature=0.1):
         "textGenerationConfig": {
             "maxTokenCount": max_tokens,
             "temperature": temperature,
-            "stopSequences": [], # Important for Titan
+            "stopSequences": [],
         }
     })
 
@@ -93,40 +96,43 @@ def _parse_amazon_titan_response(response_body_json):
 
 def _build_cohere_body(prompt, max_tokens=10, temperature=0.1):
     """Builds the JSON body for Cohere Command models."""
-    # Command R+ might have specific chat format needs, but basic prompt should work
+    # Command R+ uses a chat format
+    # Reference: https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-cohere-command-r.html
+    # Keep simple prompt for now, may need adjustment for complex tasks
     return json.dumps({
-        "prompt": prompt,
+        "prompt": prompt, # Or use "message": prompt for newer versions? Check docs.
         "max_tokens": max_tokens,
         "temperature": temperature,
-        "stop_sequences": [] # Optional, adjust if needed
+        "stop_sequences": []
     })
 
 def _parse_cohere_response(response_body_json):
     """Parses the response from Cohere Command models."""
+    # Command R+ response structure
+    if response_body_json.get('text'):
+        return response_body_json.get('text','').strip()
+    # Fallback for older Cohere format
     generations = response_body_json.get('generations', [])
     if generations and isinstance(generations, list) and len(generations) > 0:
         return generations[0].get('text', '').strip()
-    # Check for newer response format if the above fails
-    if response_body_json.get('text'):
-        return response_body_json.get('text','').strip()
     return None
 
 def _build_mistral_body(prompt, max_tokens=10, temperature=0.1):
     """Builds the JSON body for Mistral models."""
-    # Mistral often uses a specific instruction format, wrap prompt simply for now
+    # Mistral Large instruct format
+    # Reference: https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-mistral.html
     formatted_prompt = f"<s>[INST] {prompt} [/INST]"
     return json.dumps({
         "prompt": formatted_prompt,
         "max_tokens": max_tokens,
         "temperature": temperature,
-        # Mistral uses 'stop' instead of 'stopSequences'
-        "stop": []
     })
 
 def _parse_mistral_response(response_body_json):
     """Parses the response from Mistral models."""
     outputs = response_body_json.get('outputs', [])
     if outputs and isinstance(outputs, list) and len(outputs) > 0:
+        # Mistral wraps text slightly differently
         return outputs[0].get('text', '').strip()
     return None
 
@@ -140,9 +146,9 @@ def invoke_model_sequentially(prompt, model_list, max_tokens, temperature):
     bedrock_client = get_bedrock_client()
     if not bedrock_client:
         print("Bedrock client not available.")
-        return None # Cannot proceed without client
+        return None
 
-    last_error = None
+    last_error = "No models attempted or all skipped."
 
     for model_id in model_list:
         print(f"Attempting model: {model_id}")
@@ -150,21 +156,20 @@ def invoke_model_sequentially(prompt, model_list, max_tokens, temperature):
         parse_func = None
 
         try:
-            # --- Build body based on model family ---
-            if "anthropic.claude" in model_id:
+            # Build body based on model family
+            if "anthropic.claude" in model_id or "global.anthropic" in model_id: # Handle both Claude ID types
                 body = _build_anthropic_body(prompt, max_tokens, temperature)
                 parse_func = _parse_anthropic_response
             elif "meta.llama" in model_id:
                 body = _build_meta_llama_body(prompt, max_tokens, temperature)
                 parse_func = _parse_meta_llama_response
             elif "amazon.titan" in model_id:
-                # Add check to ensure it's a text model
-                if "text" in model_id:
+                if "text" in model_id: # Only use text models
                      body = _build_amazon_titan_body(prompt, max_tokens, temperature)
                      parse_func = _parse_amazon_titan_response
                 else:
                      print(f"Skipping non-text Titan model: {model_id}")
-                     continue # Skip image models etc.
+                     continue
             elif "cohere.command" in model_id:
                 body = _build_cohere_body(prompt, max_tokens, temperature)
                 parse_func = _parse_cohere_response
@@ -173,9 +178,10 @@ def invoke_model_sequentially(prompt, model_list, max_tokens, temperature):
                 parse_func = _parse_mistral_response
             else:
                 print(f"Model family not recognized or unsupported for: {model_id}")
+                last_error = f"Unsupported model ID format: {model_id}"
                 continue # Skip unknown models
 
-            # --- Make the API Call ---
+            # Make the API Call
             response = bedrock_client.invoke_model(
                 body=body,
                 modelId=model_id,
@@ -184,27 +190,29 @@ def invoke_model_sequentially(prompt, model_list, max_tokens, temperature):
             )
             response_body = json.loads(response.get('body').read())
 
-            # --- Parse the Response ---
+            # Parse the Response
             result_text = parse_func(response_body) if parse_func else None
 
-            if result_text is not None and result_text != "": # Check for empty string too
+            if result_text is not None and result_text != "":
                 print(f"Success with model: {model_id}")
                 return result_text # Return the first successful result
             else:
                 print(f"Model {model_id} returned empty or failed to parse response: {response_body}")
-                last_error = f"Model {model_id} returned invalid data." # Store error message
+                last_error = f"Model {model_id} returned invalid data."
 
         except Exception as e:
             last_error = f"Error invoking {model_id}: {e}"
             print(last_error)
-            # Handle specific errors like access denied
             if "AccessDeniedException" in str(e):
+                # Only show warning in Streamlit UI for access denied
                 st.warning(f"AWS Error: Model access for {model_id} may not be enabled. Check the Bedrock console.")
-            # Continue to the next model
+            # Continue to the next model for other errors
             continue
 
     # If loop finishes without success
     print(f"All models failed. Last error: {last_error}")
+    # Show a generic error in Streamlit if all failed
+    st.error(f"AI models failed. Last error: {last_error}. Using keyword fallback.")
     return None # Indicate failure
 
 
@@ -215,9 +223,8 @@ def get_llm_sentiment(text_chunk):
     Analyzes sentiment using Bedrock with model fallback.
     Returns sentiment string or None if all models fail.
     """
-    text_chunk = (text_chunk or "")[:500] # Truncate input text
+    text_chunk = (text_chunk or "")[:500]
 
-    # Define the specific prompt for sentiment analysis
     prompt = f"""
 Human: Carefully analyze the sentiment expressed in the following text. Consider the overall tone and context.
 Respond with only ONE of the following words: positive, negative, neutral, mixed, anger, appreciation.
@@ -230,11 +237,10 @@ Do not provide explanations, just the single word classification.
 
 Assistant:
 """
-    # Call the sequential invoker
     result_text = invoke_model_sequentially(
         prompt=prompt,
         model_list=PREFERRED_TEXT_MODELS,
-        max_tokens=10, # Sentiment needs few tokens
+        max_tokens=10,
         temperature=0.1
     )
 
@@ -244,24 +250,22 @@ Assistant:
         if sentiment in valid_sentiments:
             return sentiment
         else:
-            # Attempt basic mapping if a valid word wasn't returned
+            # Attempt basic mapping
             if "positive" in sentiment: return "positive"
             if "negative" in sentiment: return "negative"
             if "neutral" in sentiment: return "neutral"
             print(f"Model returned unexpected sentiment text: '{sentiment}'. Treating as failure.")
             return None # Fallback if result is not a valid sentiment word
     else:
-        # All models failed
-        return None # Trigger keyword fallback in dashboard
+        return None # Trigger keyword fallback
 
 # --- Updated Report Summary Function ---
 
 def generate_llm_report_summary(kpis, top_keywords, articles, brand):
     """
-    Generates a summary and recommendations using Bedrock with model fallback.
+    Generates a summary/recommendations using Bedrock with model fallback.
     Returns report text or error message.
     """
-    # Create the data summary for the prompt
     data_summary = f"""
     Brand: {brand}
     Sentiment Ratio: {kpis.get('sentiment_ratio', {})}
@@ -272,9 +276,8 @@ def generate_llm_report_summary(kpis, top_keywords, articles, brand):
 
     Major Headlines (Negative/Anger):
     {[a['text'][:150] for a in articles if a.get('sentiment') in ['negative', 'anger']][:3]}
-    """ # Truncate headlines
+    """
 
-    # Define the specific prompt for report generation
     prompt = f"""
     Human: You are a professional PR crisis manager analyzing recent online mentions for the brand '{brand}'.
     Based *only* on the provided data summary below, write a concise report with:
@@ -299,21 +302,18 @@ def generate_llm_report_summary(kpis, top_keywords, articles, brand):
 
     Assistant:
     """
-
-    # Call the sequential invoker
     result_text = invoke_model_sequentially(
         prompt=prompt,
         model_list=PREFERRED_TEXT_MODELS,
-        max_tokens=500, # Report needs more tokens
+        max_tokens=500,
         temperature=0.7
     )
 
     if result_text:
-        # Basic check to see if it follows the format
         if "**Summary:**" not in result_text or "**Recommendations:**" not in result_text:
             print(f"Model report format unexpected: {result_text[:100]}...")
-            # Return the text anyway, maybe partially useful
         return result_text
     else:
-        # All models failed
-        return "Error: Could not generate AI summary using available models. Please check Bedrock access and logs."
+        return ("**Error:** Could not generate AI summary using available models.\n"
+                "Please check Bedrock model access permissions in the AWS console "
+                "for the models listed in `bedrock.py` and ensure AWS credentials are correct.")

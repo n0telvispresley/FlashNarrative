@@ -30,9 +30,7 @@ def get_bedrock_client():
 # Define the models to try, in order of preference. Excludes Image models.
 PREFERRED_TEXT_MODELS = [
     "anthropic.claude-3-opus-20240229-v1:0",    # Highest Quality (Expensive)
-    # --- ADDED THE NEW MODEL ID HERE (CAVEAT: LIKELY INVALID) ---
-    "global.anthropic.claude-sonnet-4-20250514-v1:0",
-    # --- END ADDITION ---
+    "global.anthropic.claude-sonnet-4-20250514-v1:0", # Added (Likely Invalid)
     "anthropic.claude-3-sonnet-20240229-v1:0",   # Balanced
     "meta.llama3-70b-instruct-v1:0",           # Llama 3 70B
     "cohere.command-r-plus-v1:0",              # Cohere R+
@@ -62,9 +60,6 @@ def _parse_anthropic_response(response_body_json):
 
 def _build_meta_llama_body(prompt, max_tokens=10, temperature=0.1):
     """Builds the JSON body for Meta Llama models."""
-    # Add instruction formatting for Llama 3 Instruct
-    # Reference: https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-meta.html
-    # Basic prompt might work, but this is more robust
     formatted_prompt = f"<|begin_of_text|><|start_header_id|>user<|end_header_id|>\n\n{prompt}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
     return json.dumps({
         "prompt": formatted_prompt,
@@ -96,11 +91,8 @@ def _parse_amazon_titan_response(response_body_json):
 
 def _build_cohere_body(prompt, max_tokens=10, temperature=0.1):
     """Builds the JSON body for Cohere Command models."""
-    # Command R+ uses a chat format
-    # Reference: https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-cohere-command-r.html
-    # Keep simple prompt for now, may need adjustment for complex tasks
     return json.dumps({
-        "prompt": prompt, # Or use "message": prompt for newer versions? Check docs.
+        "prompt": prompt,
         "max_tokens": max_tokens,
         "temperature": temperature,
         "stop_sequences": []
@@ -108,10 +100,8 @@ def _build_cohere_body(prompt, max_tokens=10, temperature=0.1):
 
 def _parse_cohere_response(response_body_json):
     """Parses the response from Cohere Command models."""
-    # Command R+ response structure
     if response_body_json.get('text'):
         return response_body_json.get('text','').strip()
-    # Fallback for older Cohere format
     generations = response_body_json.get('generations', [])
     if generations and isinstance(generations, list) and len(generations) > 0:
         return generations[0].get('text', '').strip()
@@ -119,8 +109,6 @@ def _parse_cohere_response(response_body_json):
 
 def _build_mistral_body(prompt, max_tokens=10, temperature=0.1):
     """Builds the JSON body for Mistral models."""
-    # Mistral Large instruct format
-    # Reference: https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-mistral.html
     formatted_prompt = f"<s>[INST] {prompt} [/INST]"
     return json.dumps({
         "prompt": formatted_prompt,
@@ -132,7 +120,6 @@ def _parse_mistral_response(response_body_json):
     """Parses the response from Mistral models."""
     outputs = response_body_json.get('outputs', [])
     if outputs and isinstance(outputs, list) and len(outputs) > 0:
-        # Mistral wraps text slightly differently
         return outputs[0].get('text', '').strip()
     return None
 
@@ -157,14 +144,14 @@ def invoke_model_sequentially(prompt, model_list, max_tokens, temperature):
 
         try:
             # Build body based on model family
-            if "anthropic.claude" in model_id or "global.anthropic" in model_id: # Handle both Claude ID types
+            if "anthropic.claude" in model_id or "global.anthropic" in model_id:
                 body = _build_anthropic_body(prompt, max_tokens, temperature)
                 parse_func = _parse_anthropic_response
             elif "meta.llama" in model_id:
                 body = _build_meta_llama_body(prompt, max_tokens, temperature)
                 parse_func = _parse_meta_llama_response
             elif "amazon.titan" in model_id:
-                if "text" in model_id: # Only use text models
+                if "text" in model_id:
                      body = _build_amazon_titan_body(prompt, max_tokens, temperature)
                      parse_func = _parse_amazon_titan_response
                 else:
@@ -179,14 +166,11 @@ def invoke_model_sequentially(prompt, model_list, max_tokens, temperature):
             else:
                 print(f"Model family not recognized or unsupported for: {model_id}")
                 last_error = f"Unsupported model ID format: {model_id}"
-                continue # Skip unknown models
+                continue
 
             # Make the API Call
             response = bedrock_client.invoke_model(
-                body=body,
-                modelId=model_id,
-                accept='application/json',
-                contentType='application/json'
+                body=body, modelId=model_id, accept='application/json', contentType='application/json'
             )
             response_body = json.loads(response.get('body').read())
 
@@ -195,7 +179,7 @@ def invoke_model_sequentially(prompt, model_list, max_tokens, temperature):
 
             if result_text is not None and result_text != "":
                 print(f"Success with model: {model_id}")
-                return result_text # Return the first successful result
+                return result_text
             else:
                 print(f"Model {model_id} returned empty or failed to parse response: {response_body}")
                 last_error = f"Model {model_id} returned invalid data."
@@ -204,27 +188,21 @@ def invoke_model_sequentially(prompt, model_list, max_tokens, temperature):
             last_error = f"Error invoking {model_id}: {e}"
             print(last_error)
             if "AccessDeniedException" in str(e):
-                # Only show warning in Streamlit UI for access denied
-                st.warning(f"AWS Error: Model access for {model_id} may not be enabled. Check the Bedrock console.")
-            # Continue to the next model for other errors
+                st.warning(f"AWS Error: Model access for {model_id} may not be enabled. Check Bedrock console.")
             continue
 
-    # If loop finishes without success
     print(f"All models failed. Last error: {last_error}")
-    # Show a generic error in Streamlit if all failed
     st.error(f"AI models failed. Last error: {last_error}. Using keyword fallback.")
-    return None # Indicate failure
+    return None
 
 
 # --- Updated Sentiment Function ---
-
 def get_llm_sentiment(text_chunk):
     """
     Analyzes sentiment using Bedrock with model fallback.
     Returns sentiment string or None if all models fail.
     """
     text_chunk = (text_chunk or "")[:500]
-
     prompt = f"""
 Human: Carefully analyze the sentiment expressed in the following text. Consider the overall tone and context.
 Respond with only ONE of the following words: positive, negative, neutral, mixed, anger, appreciation.
@@ -238,10 +216,7 @@ Do not provide explanations, just the single word classification.
 Assistant:
 """
     result_text = invoke_model_sequentially(
-        prompt=prompt,
-        model_list=PREFERRED_TEXT_MODELS,
-        max_tokens=10,
-        temperature=0.1
+        prompt=prompt, model_list=PREFERRED_TEXT_MODELS, max_tokens=10, temperature=0.1
     )
 
     if result_text:
@@ -250,70 +225,119 @@ Assistant:
         if sentiment in valid_sentiments:
             return sentiment
         else:
-            # Attempt basic mapping
             if "positive" in sentiment: return "positive"
             if "negative" in sentiment: return "negative"
             if "neutral" in sentiment: return "neutral"
             print(f"Model returned unexpected sentiment text: '{sentiment}'. Treating as failure.")
-            return None # Fallback if result is not a valid sentiment word
+            return None
     else:
-        return None # Trigger keyword fallback
+        return None
 
-# --- Updated Report Summary Function ---
+# --- UPDATED Report Summary Function ---
+def generate_llm_report_summary(kpis, top_keywords, articles, brand, competitors): # Added competitors
+    """
+    Generates a more comprehensive, professional report summary and recommendations
+    using Bedrock with model fallback. Includes competitive context.
+    Returns report text (Markdown formatted) or error message.
+    """
+    bedrock_client = get_bedrock_client() # Check client availability early
+    if not bedrock_client:
+        print("Bedrock client not available. Cannot generate LLM report summary.")
+        return ("**Error:** Could not connect to Bedrock client.\n"
+                "**Recommendations:** Review data manually.")
 
-def generate_llm_report_summary(kpis, top_keywords, articles, brand):
-    """
-    Generates a summary/recommendations using Bedrock with model fallback.
-    Returns report text or error message.
-    """
+    # --- Prepare Data Summary for Prompt ---
+    sentiment_summary = ", ".join([f"{k.capitalize()}: {v:.1f}%" for k,v in kpis.get('sentiment_ratio', {}).items()])
+    sov_summary = ""
+    all_brands_list = kpis.get('all_brands', [brand] + (competitors or [])) # Ensure competitors is a list
+    sov_values = kpis.get('sov', [])
+    # Recalculate SOV mapping if needed
+    if len(sov_values) != len(all_brands_list):
+         brand_counts = Counter()
+         for item in articles: # Use 'articles' passed to this function
+              mentioned = item.get('mentioned_brands', [])
+              present_brands = set()
+              if isinstance(mentioned, list): present_brands.update(b for b in mentioned if b in all_brands_list)
+              elif isinstance(mentioned, str) and mentioned in all_brands_list: present_brands.add(mentioned)
+              for b in present_brands: brand_counts[b] += 1
+         total_sov_mentions = sum(brand_counts.values())
+         sov_values = [(brand_counts[b] / total_sov_mentions * 100) if total_sov_mentions > 0 else 0 for b in all_brands_list]
+
+    if len(sov_values) == len(all_brands_list):
+        sov_items = [f"{b}: {s:.1f}%" for b, s in zip(all_brands_list, sov_values)]
+        sov_summary = ", ".join(sov_items)
+
+
     data_summary = f"""
-    Brand: {brand}
-    Sentiment Ratio: {kpis.get('sentiment_ratio', {})}
-    Top Keywords: {', '.join([k[0] for k in top_keywords])}
+    **Brand:** {brand}
+    **Competitors Tracked:** {', '.join(competitors) if competitors else 'None'}
+    **Key Performance Indicators (KPIs):**
+    * Sentiment Ratio: {sentiment_summary if sentiment_summary else 'N/A'}
+    * Share of Voice (SOV): {sov_summary if sov_summary else 'N/A'}
+    * Media Impact Score (MIS): {kpis.get('mis', 0):.0f}
+    * Message Penetration Index (MPI): {kpis.get('mpi', 0):.1f}%
+    * Avg. Social Engagement: {kpis.get('engagement_rate', 0):.1f}
+    * Total Reach: {kpis.get('reach', 0):,}
 
-    Major Headlines (Positive/Appreciation):
-    {[a['text'][:150] for a in articles if a.get('sentiment') in ['positive', 'appreciation']][:3]}
+    **Top Keywords/Phrases Mentioned:** {', '.join([k[0] for k in top_keywords]) if top_keywords else 'None identified'}
 
-    Major Headlines (Negative/Anger):
-    {[a['text'][:150] for a in articles if a.get('sentiment') in ['negative', 'anger']][:3]}
+    **Recent Positive/Appreciative Headlines for {brand}:**
+    {[a['text'][:150] for a in articles if brand.lower() in (mb.lower() for mb in a.get('mentioned_brands',[])) and a.get('sentiment') in ['positive', 'appreciation']][:3]}
+
+    **Recent Negative/Angry Headlines for {brand}:**
+    {[a['text'][:150] for a in articles if brand.lower() in (mb.lower() for mb in a.get('mentioned_brands',[])) and a.get('sentiment') in ['negative', 'anger']][:3]}
+
+    **Notable Competitor Headlines:**
+    {[a['text'][:150] for a in articles if any(c.lower() in (mb.lower() for mb in a.get('mentioned_brands',[])) for c in competitors)][:3]}
     """
 
+    # --- Define the Enhanced Prompt ---
     prompt = f"""
-    Human: You are a professional PR crisis manager analyzing recent online mentions for the brand '{brand}'.
-    Based *only* on the provided data summary below, write a concise report with:
-    1.  A '**Summary:**' section (2 bullet points MAX) highlighting the key sentiment trends or themes.
-    2.  A '**Recommendations:**' section (2-3 actionable bullet points) for the PR team.
+Human: You are a senior Public Relations analyst creating a concise report for the client, '{brand}'.
+Analyze the provided data summary, focusing on brand sentiment, market visibility (SOV compared to competitors: {', '.join(competitors)}), key discussion themes, and overall media impact.
 
-    Keep the language professional and direct. Do not add any introductory or concluding sentences.
-    Format your response *exactly* like this example:
+Based *only* on the data below, generate a report with these Markdown sections:
 
-    **Summary:**
-    * Overall sentiment appears [positive/negative/mixed], driven by [mention key theme or keywords].
-    * [Mention another key observation, e.g., competitor performance, specific sentiment spike].
+**1. Executive Summary:** (2-3 bullet points)
+    * Overview of '{brand}'s online reputation (sentiment ratio, MIS).
+    * '{brand}'s visibility vs. competitors (SOV).
+    * Critical emerging themes (positive/negative keywords or headlines).
 
-    **Recommendations:**
-    * [Actionable step 1, e.g., Amplify positive mentions about X on social media].
-    * [Actionable step 2, e.g., Investigate negative feedback regarding Y and prepare a response].
-    * [Optional Actionable step 3].
+**2. Key Findings:** (3-4 bullet points)
+    * Dominant sentiment drivers (positive/negative percentages if significant).
+    * Share of Voice analysis: Is '{brand}' leading/lagging?
+    * Message Penetration (MPI): Are campaign messages resonating? ({kpis.get('mpi', 0):.1f}% detected).
+    * Significant positive/negative headlines for '{brand}'.
+    * Brief note on any major competitor activity observed in headlines.
 
-    <data>
-    {data_summary}
-    </data>
+**3. PR Recommendations:** (3-4 actionable bullet points)
+    * Concrete actions based on findings.
+    * Examples: Amplify positive themes (keywords/headlines), address negative feedback, adjust messaging based on MPI, counter competitor narratives (SOV/headlines), leverage high-impact (MIS) coverage.
+    * Link recommendations directly to data (sentiment, SOV, MPI, keywords, headlines).
 
-    Assistant:
-    """
+**Do NOT add greetings or sentences outside these sections.** Use professional language.
+
+<data_summary>
+{data_summary}
+</data_summary>
+
+Assistant:
+"""
+
+    # --- Call the Sequential Invoker ---
     result_text = invoke_model_sequentially(
         prompt=prompt,
         model_list=PREFERRED_TEXT_MODELS,
-        max_tokens=500,
-        temperature=0.7
+        max_tokens=1000, # Increased max tokens
+        temperature=0.6 # Slightly lower temp
     )
 
     if result_text:
-        if "**Summary:**" not in result_text or "**Recommendations:**" not in result_text:
-            print(f"Model report format unexpected: {result_text[:100]}...")
+        if "**Executive Summary:**" not in result_text or "**Key Findings:**" not in result_text or "**PR Recommendations:**" not in result_text:
+            print(f"Model report format unexpected (missing sections): {result_text[:150]}...")
         return result_text
     else:
-        return ("**Error:** Could not generate AI summary using available models.\n"
+        return ("**Error:** Could not generate AI Report Summary using available models.\n"
                 "Please check Bedrock model access permissions in the AWS console "
-                "for the models listed in `bedrock.py` and ensure AWS credentials are correct.")
+                "for the models listed in `bedrock.py` and ensure AWS credentials are correct.\n\n"
+                "**Recommendations:** Review raw data and KPIs manually.")

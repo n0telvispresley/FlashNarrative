@@ -13,7 +13,6 @@ from bedrock import generate_llm_report_summary as generate_ai_summary
 
 # --- Helper to create sentiment pie chart ---
 def _create_sentiment_pie(sentiment_ratio):
-    # ... (Keep existing code - Make sure it's correctly indented) ...
     labels, sizes, colors = [], [], []
     color_map = {
         'positive': 'green', 'appreciation': 'blue',
@@ -43,10 +42,11 @@ def _create_sentiment_pie(sentiment_ratio):
 
 # --- Helper function to draw a section ---
 def _draw_mention_section(c, y, title, mentions, width, margin_x, height):
-    # ... (Keep existing code - Make sure it's correctly indented) ...
+    """Draws a titled section with mentions (headline, source, link)."""
     styles = getSampleStyleSheet()
-    max_y = y
+    max_y = y # Store starting y for checking space
 
+    # Draw Section Title
     c.setFont("Helvetica-Bold", 14)
     c.setFillColor(navy)
     c.drawString(margin_x, y, title)
@@ -62,20 +62,23 @@ def _draw_mention_section(c, y, title, mentions, width, margin_x, height):
         source = item.get('source', 'Unknown Source')
         link = item.get('link', None)
 
+        # Estimate height needed
         headline_lines = textwrap.wrap(headline, width=80)
         estimated_height = len(headline_lines) * 14 + 14 + 10
-        if y < estimated_height + 60:
+        if y < estimated_height + 60: # Check page break
             c.showPage(); y = height - 60
             c.setFont("Helvetica-Bold", 14); c.setFillColor(navy)
             c.drawString(margin_x, y, title + " (cont.)"); y -= 20
             c.setFillColor(black)
 
+        # Draw Headline
         c.setFont("Helvetica-Bold", 10)
         lines = textwrap.wrap(headline, width=80)
         for line in lines:
             if y < 60: c.showPage(); y = height - 60; c.setFont("Helvetica-Bold", 10)
             c.drawString(margin_x, y, line); y -= 12
 
+        # Draw Source and Link
         c.setFont("Helvetica", 9); c.setFillColor(gray)
         source_text = f"Source: {source}"
         if y < 60: c.showPage(); y = height - 60; c.setFont("Helvetica", 9); c.setFillColor(gray)
@@ -86,13 +89,12 @@ def _draw_mention_section(c, y, title, mentions, width, margin_x, height):
              text_width = c.stringWidth(source_text, "Helvetica", 9)
              link_x = margin_x + text_width
              c.setFillColor(navy)
-             try:
-                 c.linkURL(link, (link_x, y - 2, link_x + c.stringWidth(link_text, "Helvetica", 9), y + 10), relative=1)
+             try: c.linkURL(link, (link_x, y - 2, link_x + c.stringWidth(link_text, "Helvetica", 9), y + 10), relative=1)
              except Exception as link_e: print(f"Warning: Could not create PDF link for {link}: {link_e}")
              c.drawString(link_x, y, link_text)
              c.line(link_x, y - 1, link_x + c.stringWidth(link_text, "Helvetica", 9), y-1)
 
-        y -= 14; c.setFillColor(black)
+        y -= 14; c.setFillColor(black) # Reset color
         y -= 10; mention_count += 1
 
     if mention_count == 0:
@@ -108,11 +110,8 @@ def generate_report(kpis, top_keywords, full_articles_data, brand="Brand", compe
     if competitors is None: competitors = []
 
     # --- Categorize Mentions ---
-    main_brand_mentions = []
-    competitor_mentions = []
-    related_mentions = []
-    lower_brand = brand.lower()
-    lower_competitors = {c.lower() for c in competitors}
+    main_brand_mentions = []; competitor_mentions = []; related_mentions = []
+    lower_brand = brand.lower(); lower_competitors = {c.lower() for c in competitors}
     for item in full_articles_data:
         mentioned_brands_lower = {mb.lower() for mb in item.get('mentioned_brands', [])}
         mentions_main = lower_brand in mentioned_brands_lower
@@ -125,10 +124,8 @@ def generate_report(kpis, top_keywords, full_articles_data, brand="Brand", compe
     sentiment_ratio = kpis.get('sentiment_ratio', {})
     sov = kpis.get('sov', [])
     all_brands = kpis.get('all_brands', [brand] + competitors)
-    mis = kpis.get('mis', 0)
-    mpi = kpis.get('mpi', 0)
-    engagement = kpis.get('engagement_rate', 0)
-    reach = kpis.get('reach', 0)
+    mis = kpis.get('mis', 0); mpi = kpis.get('mpi', 0)
+    engagement = kpis.get('engagement_rate', 0); reach = kpis.get('reach', 0)
     generated_on = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
     if isinstance(timeframe_hours, int): time_text = f"the last {timeframe_hours} hours"
     else: time_text = timeframe_hours
@@ -136,16 +133,17 @@ def generate_report(kpis, top_keywords, full_articles_data, brand="Brand", compe
     # --- Generate AI Summary ---
     ai_summary = "AI Summary generation failed."
     try:
-        ai_summary = generate_ai_summary(kpis, top_keywords, full_articles_data, brand)
+        # Pass competitors list to AI summary function
+        ai_summary = generate_ai_summary(kpis, top_keywords, full_articles_data, brand, competitors)
     except Exception as ai_e: print(f"Error generating AI summary: {ai_e}")
 
-    # --- THIS IS THE FIX: Restore md_lines creation ---
+    # --- FIX: Restore md_lines creation ---
     # ---- 1. Markdown Generation ----
     md_lines = [f"# Flash Narrative Report: {brand}",
                 f"**Period:** {time_text}",
                 f"**Generated:** {generated_on}",
                 "\n## Executive Summary",
-                ai_summary,
+                ai_summary, # Add AI summary here
                 "\n## Key Performance Indicators",
                 f"- **Media Impact Score (MIS):** {mis:.0f}",
                 f"- **Message Penetration (MPI):** {mpi:.1f}%",
@@ -157,9 +155,10 @@ def generate_report(kpis, top_keywords, full_articles_data, brand="Brand", compe
     if len(sov) < len(all_brands): sov += [0] * (len(all_brands) - len(sov))
     for b, s in zip(all_brands, sov): md_lines.append(f"| {b} | {s:.1f} |")
 
+    # Add Mention Categories to Markdown
     md_lines.append(f"\n## {brand} News Mentions")
     if main_brand_mentions:
-        for item in main_brand_mentions[:10]:
+        for item in main_brand_mentions[:10]: # Limit in markdown
              md_lines.append(f"- **{item.get('text','No Headline')[:150]}...** ([{item.get('source','Source')}]({item.get('link','#')}))")
     else: md_lines.append("_No specific mentions found._")
 
@@ -189,8 +188,7 @@ def generate_report(kpis, top_keywords, full_articles_data, brand="Brand", compe
     pdf_buffer = io.BytesIO()
     c = canvas.Canvas(pdf_buffer, pagesize=letter)
     width, height = letter
-    margin_x = 50
-    margin_y = 60
+    margin_x = 50; margin_y = 60
     content_width = width - 2 * margin_x
 
     # --- Page 1 ---
@@ -203,7 +201,7 @@ def generate_report(kpis, top_keywords, full_articles_data, brand="Brand", compe
     # KPIs
     c.setFont("Helvetica-Bold", 12); c.drawString(margin_x, y, "Key Performance Indicators"); y -= 16
     c.setFont("Helvetica", 10)
-    kpi_text = f"MIS: {kpis.get('mis', 0):.0f} | MPI: {kpis.get('mpi', 0):.1f}% | Avg. Engagement: {kpis.get('engagement_rate', 0):.1f} | Reach: {kpis.get('reach', 0):,}"
+    kpi_text = f"MIS: {mis:.0f} | MPI: {mpi:.1f}% | Avg. Engagement: {engagement:.1f} | Reach: {reach:,}"
     lines = textwrap.wrap(kpi_text, width=70)
     kpi_block_height = 0
     for line in lines: c.drawString(margin_x, y, line); y -= 14; kpi_block_height += 14
@@ -220,45 +218,51 @@ def generate_report(kpis, top_keywords, full_articles_data, brand="Brand", compe
     except Exception as pie_e:
         print(f"Error drawing pie chart: {pie_e}")
         img_x = width - margin_x - 150 - 20; img_y = height - margin_y - 20 - 150
-        c.setFont("Helvetica-Oblique", 9)
-        c.drawString(img_x, img_y + 150 / 2, "(Sentiment chart failed to load)")
+        c.setFont("Helvetica-Oblique", 9); c.drawString(img_x, img_y + 75, "(Sentiment chart failed)")
         y -= 20
 
-    # AI Summary Section
+    # AI Summary Section (Improved page break logic)
     y -= 10
-    c.setFont("Helvetica-Bold", 12); c.drawString(margin_x, y, "AI Summary & Recommendations"); y -= 16
+    c.setFont("Helvetica-Bold", 12)
+    # Check space BEFORE title
+    if y < margin_y + 40: c.showPage(); y = height - margin_y
+    c.drawString(margin_x, y, "AI Summary & Recommendations"); y -= 16
+
     ai_lines = ai_summary.split('\n')
     for r in ai_lines:
-         r = r.strip()
-         if not r: y -= 6; continue
-         is_bold = r.startswith("**")
-         if is_bold: c.setFont("Helvetica-Bold", 10); r = r.replace("**", "")
-         else: c.setFont("Helvetica", 10)
-         lines = textwrap.wrap(r, width=85)
-         for line in lines:
-             if y < margin_y + 20:
-                 c.showPage(); y = height - margin_y
-                 c.setFont("Helvetica-Bold", 12)
-                 c.drawString(margin_x, y, "AI Summary & Recommendations (cont.)"); y -= 16
-                 if is_bold: c.setFont("Helvetica-Bold", 10)
-                 else: c.setFont("Helvetica", 10)
-             c.drawString(margin_x, y, line); y -= 12
+        r = r.strip()
+        if not r:
+            if y < margin_y + 10: c.showPage(); y = height - margin_y # Check break for space too
+            y -= 6; continue
+
+        is_bold = r.startswith("**")
+        if is_bold: c.setFont("Helvetica-Bold", 10); r = r.replace("**", "")
+        else: c.setFont("Helvetica", 10)
+
+        lines = textwrap.wrap(r, width=85)
+        for line in lines:
+            # Check break BEFORE drawing line
+            if y < margin_y + 10:
+                c.showPage(); y = height - margin_y
+                if is_bold: c.setFont("Helvetica-Bold", 10)
+                else: c.setFont("Helvetica", 10)
+            c.drawString(margin_x, y, line); y -= 12 # Move down AFTER drawing
     y -= 15 # Space after AI summary
 
     # --- Mention Sections ---
-    if y < height / 2: c.showPage(); y = height - margin_y
+    if y < height / 2: c.showPage(); y = height - margin_y # Check before first section
     y = _draw_mention_section(c, y, f"{brand} News Mentions", main_brand_mentions, content_width, margin_x, height)
     y = _draw_mention_section(c, y, "Competition News Mentions", competitor_mentions, content_width, margin_x, height)
     y = _draw_mention_section(c, y, "Related News / Passive Mentions", related_mentions, content_width, margin_x, height)
 
     # Keywords Section
-    if y < 150: c.showPage(); y = height - margin_y
+    if y < 150: c.showPage(); y = height - margin_y # Check before keywords
     c.setFont("Helvetica-Bold", 12); c.drawString(margin_x, y, "Top Keywords & Phrases"); y -= 16
     c.setFont("Helvetica", 10)
     kw_count = 0
     for w, f in top_keywords:
         text = f"- {w}: {f}"
-        if y < margin_y + 10:
+        if y < margin_y + 10: # Check break inside loop
              c.showPage(); y = height - margin_y
              c.setFont("Helvetica-Bold", 12); c.drawString(margin_x, y, "Top Keywords & Phrases (cont.)"); y -= 16
              c.setFont("Helvetica", 10)

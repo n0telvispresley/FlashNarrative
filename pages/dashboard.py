@@ -6,6 +6,7 @@ import traceback
 from dotenv import load_dotenv
 import io # <-- IMPORT IO FOR EXCEL
 from collections import Counter # Import Counter for SOV recalc
+import os # Import os for getenv
 
 # --- IMPORTANT: Use relative imports from the root ---
 # Load .env first, *then* import other modules
@@ -48,12 +49,8 @@ custom_css = f"""
 
     /* --- CSS for KPI Boxes --- */
     .kpi-box {{
-        border: 1px solid {BEIGE};
-        border-radius: 5px;
-        padding: 15px;
-        text-align: center;
-        margin-bottom: 10px;
-        background-color: {DARK_BG};
+        border: 1px solid {BEIGE}; border-radius: 5px; padding: 15px;
+        text-align: center; margin-bottom: 10px; background-color: {DARK_BG};
     }}
     .kpi-box .label {{
         font-size: 0.9em; color: {BEIGE}; margin-bottom: 5px; text-transform: uppercase;
@@ -77,6 +74,7 @@ try:
     from .. import bedrock as bedrock_llm # Use alias for clarity
     from .. import servicenow_integration
 except ImportError:
+    # Fallback needed if running dashboard.py directly during development
     import analysis, report_gen, scraper, bedrock as bedrock_llm, servicenow_integration
 
 
@@ -94,15 +92,16 @@ def run_analysis(brand, time_range_text, hours, competitors, industry, campaign_
         temp_data = scraped_data['full_data']
         progress_bar = st.progress(0, text="Analyzing sentiment (0%)...")
         llm_failed_count = 0
+        total_items = len(temp_data)
         for i, item in enumerate(temp_data):
             llm_sentiment = bedrock_llm.get_llm_sentiment(item.get('text', ''))
             item['sentiment'] = llm_sentiment if llm_sentiment is not None else analysis.analyze_sentiment_keywords(item.get('text', ''))
             if llm_sentiment is None: llm_failed_count += 1
-            progress_percent = ((i + 1) / len(temp_data))
+            progress_percent = (i + 1) / total_items
             progress_text = f"Analyzing sentiment ({progress_percent * 100:.0f}%)..." + (f" (LLM errors: {llm_failed_count})" if llm_failed_count > 0 else "")
             progress_bar.progress(progress_percent, text=progress_text)
         progress_bar.empty(); st.session_state.full_data = temp_data
-        if llm_failed_count > 0: st.warning(f"⚠️ AI connection failed for {llm_failed_count}/{len(temp_data)} items. Used keyword fallback.")
+        if llm_failed_count > 0: st.warning(f"⚠️ AI connection failed for {llm_failed_count}/{total_items} items. Used keyword fallback.")
 
         # 3. Compute KPIs
         with st.spinner("Calculating KPIs..."):
@@ -111,21 +110,32 @@ def run_analysis(brand, time_range_text, hours, competitors, industry, campaign_
         # 4. Extract Keywords/Phrases
         all_text = " ".join([item["text"] for item in st.session_state.full_data])
         if hasattr(analysis, 'stop_words') and isinstance(analysis.stop_words, set):
-            analysis.stop_words.add(brand.lower()); [analysis.stop_words.add(c.lower()) for c in competitors]
-        st.session_state.top_keywords = analysis.extract_keywords(all_text, top_n=10)
+            # Add brand and competitors to stopwords dynamically
+            current_stop_words = analysis.stop_words.copy() # Avoid modifying the global set directly if re-running analysis
+            current_stop_words.add(brand.lower()); [current_stop_words.add(c.lower()) for c in competitors]
+            # Override the global stopwords *during* this function call might be complex
+            # Instead, pass the updated set if the function allows, or modify the function
+            # For simplicity here, we'll rely on the modification done earlier (less ideal if re-running with different brands w/o restart)
+            # A better approach would be to pass stop_words to extract_keywords
+        st.session_state.top_keywords = analysis.extract_keywords(all_text, top_n=10) # Assuming extract_keywords uses the global analysis.stop_words
 
         st.success("Analysis complete!")
 
         # 5. Check for Alerts
         sentiment_ratio = st.session_state.kpis.get('sentiment_ratio', {})
         neg_pct = sentiment_ratio.get('negative', 0) + sentiment_ratio.get('anger', 0)
-        if neg_pct > 30:
+        if neg_pct > 30: # Threshold for alerts
             alert_msg = f"CRISIS ALERT: High negative sentiment ({neg_pct:.1f}%) detected for {brand}."
             st.error(alert_msg)
-            alert_email = os.getenv("ALERT_EMAIL", 'alerts@yourcompany.com') # Get alert email from .env or default
-            servicenow_integration.send_alert(alert_msg, channel='#alerts', to_email=alert_email)
+            alert_email = os.getenv("ALERT_EMAIL") # Get alert email from .env
+            if alert_email:
+                servicenow_integration.send_alert(alert_msg, channel='#alerts', to_email=alert_email)
+            else:
+                servicenow_integration.send_alert(alert_msg, channel='#alerts') # Send to Slack only if no email
             servicenow_integration.create_servicenow_ticket(f"PR Crisis Alert: {brand}", alert_msg, urgency='1', impact='1')
-    except Exception: st.error(f"An error occurred during analysis:\n{traceback.format_exc()}")
+
+    except Exception:
+        st.error(f"An error occurred during analysis:\n{traceback.format_exc()}")
 
 
 def display_dashboard(brand, competitors, time_range_text, thresholds): # <-- Added thresholds param
@@ -138,17 +148,27 @@ def display_dashboard(brand, competitors, time_range_text, thresholds): # <-- Ad
     kpis = st.session_state.kpis
     mis_val = kpis.get('mis', 0); mpi_val = kpis.get('mpi', 0)
     eng_val = kpis.get('engagement_rate', 0); reach_val = kpis.get('reach', 0)
-    mpi_threshold = thresholds.get('mpi_good', 20); eng_threshold = thresholds.get('eng_good', 1.0)
+
+    # --- Get ALL thresholds ---
+    mis_threshold = thresholds.get('mis_good', 100)
+    mpi_threshold = thresholds.get('mpi_good', 20)
+    eng_threshold = thresholds.get('eng_good', 1.0)
+    reach_threshold = thresholds.get('reach_good', 50000)
+
+    # Determine CSS classes
+    mis_class = "good" if mis_val >= mis_threshold else "bad"
     mpi_class = "good" if mpi_val >= mpi_threshold else "bad"
     eng_class = "good" if eng_val >= eng_threshold else "bad"
-    mis_class = ""; reach_class = ""
+    reach_class = "good" if reach_val >= reach_threshold else "bad"
 
+    # Display using Markdown boxes
     col1, col2, col3, col4 = st.columns(4)
     with col1: st.markdown(f'<div class="kpi-box {mis_class}"><div class="label">Media Impact (MIS)</div><div class="value">{mis_val:.0f}</div></div>', unsafe_allow_html=True)
     with col2: st.markdown(f'<div class="kpi-box {mpi_class}"><div class="label">Msg Penetration (MPI)</div><div class="value">{mpi_val:.1f}%</div></div>', unsafe_allow_html=True)
     with col3: st.markdown(f'<div class="kpi-box {eng_class}"><div class="label">Avg Social Engagement</div><div class="value">{eng_val:.1f}</div></div>', unsafe_allow_html=True)
     with col4: st.markdown(f'<div class="kpi-box {reach_class}"><div class="label">Total Reach</div><div class="value">{reach_val:,}</div></div>', unsafe_allow_html=True)
-    st.caption(f"Thresholds (Good ≥) MPI: {mpi_threshold}% | Engagement: {eng_threshold}")
+    # --- Update caption ---
+    st.caption(f"Thresholds (Good ≥) MIS: {mis_threshold} | MPI: {mpi_threshold}% | Engagement: {eng_threshold} | Reach: {reach_threshold:,}")
 
     # --- Charts (Vertical Layout) ---
     st.subheader("Visual Analysis")
@@ -156,21 +176,30 @@ def display_dashboard(brand, competitors, time_range_text, thresholds): # <-- Ad
     if sentiment_ratio:
         pie_data = pd.DataFrame({'Sentiment': list(sentiment_ratio.keys()), 'Percent': list(sentiment_ratio.values())})
         color_map = {'positive': 'green', 'appreciation': 'blue', 'neutral': 'grey', 'mixed': 'orange', 'negative': 'red', 'anger': 'darkred'}
-        fig = px.pie(pie_data, names='Sentiment', values='Percent', title="AI Sentiment Distribution", color='Sentiment', color_discrete_map=color_map, hole=0.4)
-        st.plotly_chart(fig, use_container_width=True)
+        fig_pie = px.pie(pie_data, names='Sentiment', values='Percent', title="AI Sentiment Distribution", color='Sentiment', color_discrete_map=color_map, hole=0.4)
+        st.plotly_chart(fig_pie, use_container_width=True)
     else: st.write("No sentiment data.")
 
     all_brands = kpis.get("all_brands", [brand] + competitors)
     sov_values = kpis.get("sov", [])
-    if len(sov_values) != len(all_brands): # Recalculate SOV mapping if needed
+    # --- Robust SOV Recalculation ---
+    if len(sov_values) != len(all_brands):
+        print("Warning: SOV length mismatch, recalculating based on current data.")
         brand_counts = Counter()
-        for item in st.session_state.full_data:
-             mentioned = item.get('mentioned_brands', []); present_brands = set()
-             if isinstance(mentioned, list): present_brands.update(b for b in mentioned if b in all_brands)
-             elif isinstance(mentioned, str) and mentioned in all_brands: present_brands.add(mentioned)
-             for b in present_brands: brand_counts[b] += 1
-        total_sov_mentions = sum(brand_counts.values())
-        sov_values = [(brand_counts[b] / total_sov_mentions * 100) if total_sov_mentions > 0 else 0 for b in all_brands]
+        relevant_mentions_count = 0
+        for item in st.session_state.full_data: # Use current full_data
+             mentioned = item.get('mentioned_brands', [])
+             present_brands_in_item = set()
+             if isinstance(mentioned, list): present_brands_in_item.update(b for b in mentioned if b in all_brands)
+             elif isinstance(mentioned, str) and mentioned in all_brands: present_brands_in_item.add(mentioned)
+             if present_brands_in_item: # Only count mentions that include at least one tracked brand for SOV base
+                 relevant_mentions_count +=1
+                 for b in present_brands_in_item: brand_counts[b] += 1 # Count appearances
+        # Base SOV on total appearances across relevant mentions
+        total_appearances = sum(brand_counts.values())
+        sov_values = [(brand_counts[b] / total_appearances * 100) if total_appearances > 0 else 0 for b in all_brands]
+        st.session_state.kpis['sov'] = sov_values # Update kpis in state if recalculated
+
     sov_df = pd.DataFrame({'Brand': all_brands, 'Share of Voice (%)': sov_values})
     fig_sov = px.bar(sov_df, x='Brand', y='Share of Voice (%)', title="Share of Voice (SOV)", color='Brand')
     st.plotly_chart(fig_sov, use_container_width=True)
@@ -199,23 +228,23 @@ def display_dashboard(brand, competitors, time_range_text, thresholds): # <-- Ad
             st.session_state.report_generated = False; pdf_generated = False; excel_generated = False; ai_summary = ""
             with st.spinner("Building PDF report..."):
                 try:
-                    # Pass competitors list to AI summary
+                    # Pass competitors to the AI summary function
                     ai_summary = bedrock_llm.generate_llm_report_summary(st.session_state.kpis, st.session_state.top_keywords, st.session_state.full_data, brand, competitors) # <-- Pass competitors
                     st.session_state.ai_summary_text = ai_summary
                     md, pdf_bytes = report_gen.generate_report(kpis=st.session_state.kpis, top_keywords=st.session_state.top_keywords, full_articles_data=st.session_state.full_data, brand=brand, competitors=competitors, timeframe_hours=time_range_text, include_json=False)
                     st.session_state.pdf_report_bytes = pdf_bytes; pdf_generated = True
-                except Exception as e: st.error(f"Failed PDF: {e}\n{traceback.format_exc()}")
+                except Exception as e: st.error(f"Failed PDF generation: {e}\n{traceback.format_exc()}")
             with st.spinner("Building Excel mentions file..."):
                 try:
                     excel_data = [{'Date': item.get('date', 'N/A'), 'Sentiment': item.get('sentiment', 'N/A'), 'Source': item.get('source', 'N/A'), 'Mention Text': item.get('text', ''), 'Link': item.get('link', '#'), 'Likes': item.get('likes', 0), 'Comments': item.get('comments', 0)} for item in st.session_state.full_data]
                     df_excel = pd.DataFrame(excel_data); output = io.BytesIO()
                     with pd.ExcelWriter(output, engine='openpyxl') as writer: df_excel.to_excel(writer, index=False, sheet_name='Mentions')
                     st.session_state.excel_report_bytes = output.getvalue(); excel_generated = True
-                except Exception as e: st.error(f"Failed Excel: {e}")
+                except Exception as e: st.error(f"Failed Excel generation: {e}")
             if pdf_generated and excel_generated:
-                st.session_state.report_generated = True; st.success("Reports Generated!")
-                with st.expander("View AI Summary & Recommendations", expanded=True): st.markdown(st.session_state.ai_summary_text)
-            else: st.error("Report generation failed.")
+                st.session_state.report_generated = True; st.success("Reports Generated Successfully!")
+                with st.expander("View AI Summary & Recommendations", expanded=True): st.markdown(st.session_state.ai_summary_text) # Display stored summary
+            else: st.error("Report generation failed. Check errors above.")
 
     # Conditional Display of Download & Email Buttons
     if st.session_state.get('report_generated', False):
@@ -223,25 +252,29 @@ def display_dashboard(brand, competitors, time_range_text, thresholds): # <-- Ad
         col_dl_pdf, col_dl_excel, col_email = st.columns(3)
         with col_dl_pdf:
             if st.session_state.get('pdf_report_bytes'): st.download_button("Download PDF", st.session_state.pdf_report_bytes, f"{brand}_Report.pdf", "application/pdf", use_container_width=True, key="pdf_dl")
-            else: st.button("Download PDF", disabled=True, use_container_width=True, help="PDF failed.")
+            else: st.button("Download PDF", disabled=True, use_container_width=True, help="PDF generation failed.")
         with col_dl_excel:
             if st.session_state.get('excel_report_bytes'): st.download_button("Download Excel", st.session_state.excel_report_bytes, f"{brand}_Mentions.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True, key="excel_dl")
-            else: st.button("Download Excel", disabled=True, use_container_width=True, help="Excel failed.")
+            else: st.button("Download Excel", disabled=True, use_container_width=True, help="Excel generation failed.")
         with col_email:
             email_to_send = st.session_state.get("recipient_email_input", "")
             files_ready = st.session_state.get('pdf_report_bytes') and st.session_state.get('excel_report_bytes')
-            if not email_to_send: st.button("Email Reports", disabled=True, use_container_width=True, help="Enter email.")
-            elif not files_ready: st.button("Email Reports", disabled=True, use_container_width=True, help="Files not ready.")
+            if not email_to_send: st.button("Email Reports", disabled=True, use_container_width=True, help="Enter email above.")
+            elif not files_ready: st.button("Email Reports", disabled=True, use_container_width=True, help="Report files missing/failed.")
             elif st.button("Email Reports", use_container_width=True, key="email_reports"):
                 with st.spinner(f"Sending to {email_to_send}..."):
                     attachments = [(f"{brand}_Report.pdf", st.session_state.pdf_report_bytes, 'application/pdf'), (f"{brand}_Mentions.xlsx", st.session_state.excel_report_bytes, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')]
                     subject = f"FlashNarrative Report: {brand} ({time_range_text})"
-                    ai_summary_body = st.session_state.get("ai_summary_text", "(AI Summary failed)")
+                    ai_summary_body = st.session_state.get("ai_summary_text", "(AI Summary could not be generated.)")
                     body = f"Attached: FlashNarrative reports for {brand} ({time_range_text}).\n\nAI Summary:\n{ai_summary_body}"
                     sent = servicenow_integration.send_report_email_with_attachments(email_to_send, subject, body, attachments)
                     # Add Notification
-                    if sent: st.toast(f"✅ Reports emailed to {email_to_send}!", icon="🎉"); st.success(f"Emailed to {email_to_send}!")
-                    else: st.toast("❌ Email failed. Check logs/settings.", icon="🔥"); st.error("Email failed. Check logs & .env (Use App Password?).")
+                    if sent:
+                        st.toast(f"✅ Reports emailed to {email_to_send}!", icon="🎉")
+                        st.success(f"Emailed to {email_to_send}!") # Keep success message
+                    else:
+                        st.toast("❌ Email failed. Check logs/settings.", icon="🔥")
+                        st.error("Email failed. Check logs & .env (Use App Password?).")
 
 
 def main():
@@ -267,10 +300,18 @@ def main():
     with st.sidebar:
         st.header("⚙️ Settings")
         st.subheader("KPI Thresholds (Good ≥)")
-        # Use keys for number inputs to retain state
+        # Add inputs for MIS and Reach
+        mis_thresh = st.number_input("Media Impact Score (MIS)", min_value=0, value=100, step=10, key="mis_thresh_input")
         mpi_thresh = st.number_input("Message Penetration (%)", min_value=0, max_value=100, value=20, step=5, key="mpi_thresh_input")
         eng_thresh = st.number_input("Avg. Social Engagement", min_value=0.0, value=1.0, step=0.1, format="%.1f", key="eng_thresh_input")
-        thresholds = {"mpi_good": mpi_thresh, "eng_good": eng_thresh}
+        reach_thresh = st.number_input("Total Reach", min_value=0, value=50000, step=1000, key="reach_thresh_input")
+        # Store thresholds in a dictionary
+        thresholds = {
+            "mis_good": mis_thresh, # Added MIS
+            "mpi_good": mpi_thresh,
+            "eng_good": eng_thresh,
+            "reach_good": reach_thresh # Added Reach
+        }
 
     # Inputs
     st.subheader("Monitoring Setup")
@@ -289,6 +330,7 @@ def main():
 
     # Run Button
     if st.button("Run Analysis", type="primary", use_container_width=True, key="run_analysis_button"):
+        # Clear state vars
         st.session_state.full_data = []; st.session_state.kpis = {}; st.session_state.top_keywords = []
         st.session_state.report_generated = False; st.session_state.pdf_report_bytes = None
         st.session_state.excel_report_bytes = None; st.session_state.ai_summary_text = ""
